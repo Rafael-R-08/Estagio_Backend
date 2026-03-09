@@ -1,0 +1,196 @@
+// ----------------------
+// Prisma Schema - Learning Hub (Softinsa)
+// ----------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---- Enums ----
+enum Role {
+  USER
+  ADMIN
+}
+
+enum ExperienceLevel {
+  junior
+  mid
+  senior
+  lead
+}
+
+enum TrainingStatus {
+  ongoing
+  completed
+  priority
+  later
+}
+
+enum CourseLevel {
+  beginner
+  intermediate
+  advanced
+}
+
+// ---- Core Models ----
+
+model User {
+  id              String            @id @default(uuid())
+  email           String            @unique
+  emailVerified   Boolean           @default(false)
+  refreshTokens   RefreshToken[]
+  passwordHash    String
+  name            String?
+  role            Role              @default(USER)
+  experienceLevel ExperienceLevel?
+  techStack       String[]          // ex: ["React","Node.js","Azure"]
+  interests       String[]          // ex: ["Cloud","DevOps"]
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // relações
+  trainings       TrainingRecord[]
+  certificates    Certificate[]
+  preferences     UserPreferences?
+}
+
+// Plataformas
+model LearningPlatform {
+  id               String    @id @default(uuid())
+  name             String    @unique
+  type             String
+  apiEndpoint      String?
+  apiKeyRequired   Boolean   @default(false)
+  enabled          Boolean   @default(true)
+  searchEnabled    Boolean   @default(true)
+  config           Json      @default("{}")
+
+  // relações
+  trainings        TrainingRecord[]
+  courses          Course[]
+}
+
+// Registos de treino por utilizador (estado, rating, notas, timestamps)
+model TrainingRecord {
+  id             String             @id @default(uuid())
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  platform       LearningPlatform?  @relation(fields: [platformId], references: [id])
+  platformId     String?
+
+  title          String
+  url            String
+  status         TrainingStatus
+  startedAt      DateTime?
+  completedAt    DateTime?
+  durationHours  Int?
+  notes          String?
+  rating         Int?               @db.SmallInt 
+
+  createdAt      DateTime           @default(now())
+
+  // 1:1 opcional – um treino pode (ou não) ter certificado
+  certificate    Certificate?
+  
+  @@index([userId])
+  @@index([status])
+}
+
+// Certificados (evidências), associados ao treino e ao utilizador (renovações)
+model Certificate {
+  id               String         @id @default(uuid())
+  training         TrainingRecord @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  trainingId       String         @unique   
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+
+  fileUrl          String
+  courseName       String?
+  provider         String?
+  completionDate   DateTime?
+  expirationDate   DateTime?
+  durationHours    Int?
+  extractedMetadata Json?
+
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([expirationDate])
+}
+
+// Preferências do utilizador (plataformas ativas, objetivos, notificações)
+model UserPreferences {
+  id                   String   @id @default(uuid())
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId               String   @unique
+
+  enabledPlatforms     String[]     // guarda IDs de LearningPlatform (strings UUID)
+  learningGoals        String[]
+  notificationEmail    Boolean  @default(true)
+  notificationRenewals Boolean  @default(true)
+  reminderDays         Int      @default(30)
+}
+
+// Cache de cursos por plataforma (para unified search + recomendações)
+model Course {
+  id             String            @id @default(uuid())
+  platform       LearningPlatform  @relation(fields: [platformId], references: [id], onDelete: Cascade)
+  platformId     String
+
+  externalId     String
+  title          String
+  description    String?
+  url            String
+  instructor     String?
+  rating         Float?
+  durationHours  Int?
+  level          CourseLevel?
+  tags           String[]
+  embedding      Unsupported("vector")?  // pgvector type for semantic search
+
+  lastUpdated    DateTime          @default(now())
+
+  @@index([platformId])
+}
+
+model ScrapedPage {
+  id        String   @id @default(uuid())
+  url       String
+  data      Json
+  error     String?
+  scrapedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([url])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([token])
+}
+
+// Chunks de texto para testes de embedding e pesquisa semântica
+model TextChunk {
+  id        String   @id @default(uuid())
+  content   String   @db.Text
+  embedding Unsupported("vector")?  // pgvector type for semantic search
+  metadata  Json?    // metadados opcionais (fonte, tags, etc)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt])
+}

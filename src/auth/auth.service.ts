@@ -147,6 +147,7 @@ export class AuthService {
       notifyInApp: true,
       adminCanSeeRecs: true,
       aiCanUseHistory: true,
+      uiLanguage: 'pt',
     };
   }
 

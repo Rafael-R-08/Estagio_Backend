@@ -65,6 +65,17 @@ export class TrainingsController {
   }
 
   /**
+   * GET /trainings/stats/company
+   * Média de horas de formação por utilizador na empresa
+   */
+  @Get('stats/company')
+  @ApiOperation({ summary: 'Média de horas de formação por utilizador na empresa' })
+  @ApiResponse({ status: 200, description: 'Estatísticas da empresa' })
+  getCompanyStats() {
+    return this.trainingsService.getCompanyStats();
+  }
+
+  /**
    * GET /trainings/:id
    * Obter um registo específico
    */

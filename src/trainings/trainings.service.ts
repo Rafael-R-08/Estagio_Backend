@@ -139,4 +139,25 @@ export class TrainingsService {
       completedThisYear,
     };
   }
+
+  async getCompanyStats() {
+    // Aggregate average durationHours per user, then average across all users
+    const perUser = await this.prisma.trainingRecord.groupBy({
+      by: ['userId'],
+      _avg: { durationHours: true },
+    });
+
+    const usersWithHours = perUser.filter((u) => u._avg.durationHours !== null);
+    const companyAvgHours =
+      usersWithHours.length > 0
+        ? usersWithHours.reduce((sum, u) => sum + (u._avg.durationHours ?? 0), 0) /
+          usersWithHours.length
+        : null;
+
+    return {
+      companyAvgHours:
+        companyAvgHours !== null ? Math.round(companyAvgHours * 10) / 10 : null,
+      usersWithData: usersWithHours.length,
+    };
+  }
 }

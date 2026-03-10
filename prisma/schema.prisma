@@ -210,6 +210,9 @@ model UserSettings {
   notifyByEmail     Boolean @default(true)
   notifyInApp       Boolean @default(true)
 
+  // Interface
+  uiLanguage    String  @default("pt")   // "pt" | "en"
+
   // Privacidade
   adminCanSeeRecs Boolean @default(true)
   aiCanUseHistory Boolean @default(true)

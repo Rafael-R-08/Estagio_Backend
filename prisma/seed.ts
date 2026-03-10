@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import 'dotenv/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaClient, Role, TrainingStatus } from '@prisma/client';
@@ -33,8 +36,8 @@ async function main() {
         apiKeyRequired: false,
         enabled: true,
         searchEnabled: true,
-        config: {}
-      }
+        config: {},
+      },
     }),
 
     prisma.learningPlatform.upsert({
@@ -46,8 +49,8 @@ async function main() {
         apiKeyRequired: false,
         enabled: true,
         searchEnabled: true,
-        config: {}
-      }
+        config: {},
+      },
     }),
 
     prisma.learningPlatform.upsert({
@@ -59,8 +62,8 @@ async function main() {
         apiKeyRequired: false,
         enabled: true,
         searchEnabled: true,
-        config: {}
-      }
+        config: {},
+      },
     }),
 
     prisma.learningPlatform.upsert({
@@ -72,9 +75,9 @@ async function main() {
         apiKeyRequired: false,
         enabled: true,
         searchEnabled: true,
-        config: {}
-      }
-    })
+        config: {},
+      },
+    }),
   ]);
 
   const udemy = platforms[0];
@@ -98,8 +101,12 @@ async function main() {
       role: Role.ADMIN,
       experienceLevel: 'senior',
       techStack: ['Node.js', 'Prisma'],
-      interests: ['Backend', 'APIs']
-    }
+      interests: ['Backend', 'APIs'],
+      jobTitle: 'Platform Administrator',
+      department: 'IT',
+      location: 'escritorio',
+      preferredLanguage: 'PT',
+    },
   });
 
   await prisma.userPreferences.upsert({
@@ -108,8 +115,8 @@ async function main() {
     create: {
       userId: admin.id,
       enabledPlatforms: platforms.map((p) => p.id),
-      learningGoals: ['Gerir Plataforma', 'Monitorizar Treinos']
-    }
+      learningGoals: ['Gerir Plataforma', 'Monitorizar Treinos'],
+    },
   });
 
   // -------------------------------------------------------------
@@ -125,6 +132,10 @@ async function main() {
       experienceLevel: 'mid',
       techStack: ['React', 'Node.js', 'TypeScript', 'PostgreSQL'],
       interests: ['Cloud', 'DevOps', 'Backend', 'APIs'],
+      jobTitle: 'Full Stack Developer',
+      department: 'Engineering',
+      location: 'hibrido',
+      preferredLanguage: 'PT',
     },
     create: {
       email: userEmail,
@@ -134,6 +145,10 @@ async function main() {
       experienceLevel: 'mid',
       techStack: ['React', 'Node.js', 'TypeScript', 'PostgreSQL'],
       interests: ['Cloud', 'DevOps', 'Backend', 'APIs'],
+      jobTitle: 'Full Stack Developer',
+      department: 'Engineering',
+      location: 'hibrido',
+      preferredLanguage: 'PT',
     },
   });
 
@@ -141,12 +156,20 @@ async function main() {
     where: { userId: user.id },
     update: {
       enabledPlatforms: [udemy.id, msLearn.id, academiapt.id],
-      learningGoals: ['Aprender Azure', 'Melhorar skills em DevOps', 'Aprofundar NestJS'],
+      learningGoals: [
+        'Aprender Azure',
+        'Melhorar skills em DevOps',
+        'Aprofundar NestJS',
+      ],
     },
     create: {
       userId: user.id,
       enabledPlatforms: [udemy.id, msLearn.id, academiapt.id],
-      learningGoals: ['Aprender Azure', 'Melhorar skills em DevOps', 'Aprofundar NestJS'],
+      learningGoals: [
+        'Aprender Azure',
+        'Melhorar skills em DevOps',
+        'Aprofundar NestJS',
+      ],
     },
   });
 

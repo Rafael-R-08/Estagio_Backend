@@ -50,13 +50,20 @@ model User {
   techStack       String[]          // ex: ["React","Node.js","Azure"]
   interests       String[]          // ex: ["Cloud","DevOps"]
 
+  jobTitle        String?
+  department      String?
+  location        String?           // 'escritorio' | 'remoto' | 'hibrido'
+  preferredLanguage String?         // 'PT' | 'EN' | 'ES' | 'FR'
+
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
+  isActive        Boolean           @default(true)
 
   // relações
   trainings       TrainingRecord[]
   certificates    Certificate[]
   preferences     UserPreferences?
+  settings        UserSettings?
 }
 
 // Plataformas
@@ -66,6 +73,7 @@ model LearningPlatform {
   type             String
   apiEndpoint      String?
   apiKeyRequired   Boolean   @default(false)
+  apiKey           String?
   enabled          Boolean   @default(true)
   searchEnabled    Boolean   @default(true)
   config           Json      @default("{}")
@@ -181,6 +189,33 @@ model RefreshToken {
 
   @@index([userId])
   @@index([token])
+}
+
+// Definições personalizadas do utilizador (aprendizagem, IA, notificações, privacidade)
+model UserSettings {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Preferências da IA
+  aiResponseDetail     String?   // "concise" | "detailed"
+  aiResponseLanguage   String?
+  aiExplainReasoning   Boolean   @default(false)
+  aiRecommendationMode String?   // "conservative" | "exploratory"
+
+  // Notificações
+  notifyWeeklyRecs  Boolean @default(true)
+  notifyCertExpiry  Boolean @default(true)
+  notifyProgress    Boolean @default(true)
+  notifyByEmail     Boolean @default(true)
+  notifyInApp       Boolean @default(true)
+
+  // Privacidade
+  adminCanSeeRecs Boolean @default(true)
+  aiCanUseHistory Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // Chunks de texto para testes de embedding e pesquisa semântica

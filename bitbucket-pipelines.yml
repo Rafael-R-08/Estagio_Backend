@@ -1,0 +1,66 @@
+image: node:20
+
+options:
+  max-time: 20
+
+definitions:
+  caches:
+    node: ~/.npm
+  services:
+    postgres:
+      image: postgres:16
+      environment:
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+        POSTGRES_DB: learninghub
+      ports:
+        - "5432:5432"
+
+pipelines:
+  default:
+    - step:
+        name: Install & Build
+        caches:
+          - node
+        script:
+          - npm ci
+          - npx prisma generate
+          - npm run build
+
+  pull-requests:
+    "**":
+      - step:
+          name: Lint + Build + Validate Prisma
+          caches:
+            - node
+          script:
+            - npm ci
+            - npx prisma generate
+            - npx prisma validate
+            - npm run lint
+            - npm run build
+
+  branches:
+    QA:
+      - step:
+          name: QA Validation
+          services:
+            - postgres
+          caches:
+            - node
+          script:
+            - npm ci
+            - npx prisma generate
+            - export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/learninghub
+            - npx prisma migrate deploy
+            - npm run build
+
+    main:
+      - step:
+          name: Production Build
+          caches:
+            - node
+          script:
+            - npm ci
+            - npx prisma generate
+            - npm run build

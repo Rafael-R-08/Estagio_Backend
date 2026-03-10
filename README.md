@@ -1,48 +1,251 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# LearningHub — Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API REST do projeto **LearningHub**, desenvolvida com NestJS. Oferece autenticação JWT, gestão de formações, análise de perfis com IA (RAG + OpenAI), recomendações personalizadas, certificados no Azure Blob Storage e pesquisa semântica com pgvector.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Índice
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- [Tecnologias](#tecnologias)
+- [Arquitetura](#arquitetura)
+- [Pré-requisitos](#pré-requisitos)
+- [Variáveis de Ambiente](#variáveis-de-ambiente)
+- [Correr com Docker](#correr-com-docker)
+- [Correr o Backend em WSL](#correr-o-backend-em-wsl)
+- [Correr o Frontend em Windows](#correr-o-frontend-em-windows)
+- [Migrações de Base de Dados](#migrações-de-base-de-dados)
+- [Scripts Disponíveis](#scripts-disponíveis)
+- [Documentação da API](#documentação-da-api)
 
-## Project setup
+---
 
-```bash
-$ npm install
+## Tecnologias
+
+| Camada | Tecnologia |
+|---|---|
+| Framework | NestJS 11 + TypeScript |
+| Base de dados | PostgreSQL 16 + pgvector |
+| ORM | Prisma 7 |
+| Cache | Redis 7 |
+| Autenticação | JWT (access + refresh tokens) via Passport |
+| IA | OpenAI (GPT-4 Turbo, text-embedding-3-small) + Ollama (local) |
+| Armazenamento | Azure Blob Storage |
+| Documentação API | Swagger / OpenAPI (disponível em `/docs`) |
+| CI/CD | Bitbucket Pipelines |
+| Contentores | Docker + Docker Compose |
+
+---
+
+## Arquitetura
+
+```
+src/
+├── auth/            # Autenticação JWT (login, refresh, registo)
+├── user/            # Gestão de utilizadores e perfis
+├── trainings/       # CRUD de formações
+├── certificates/    # Upload e gestão de certificados (Azure Blob)
+├── ai/              # Integração OpenAI (geração de texto, embeddings)
+├── rag/             # Retrieval-Augmented Generation (pesquisa semântica)
+├── recommendations/ # Motor de recomendações personalizadas
+├── analysis/        # Análise de perfis e lacunas de competências
+├── search/          # Pesquisa combinada (texto + semântica)
+├── scraper/         # Recolha automática de formações externas
+├── cache/           # Queue e cache para pedidos Ollama
+├── prisma/          # Módulo e serviço Prisma
+├── config/          # Configuração centralizada via variáveis de ambiente
+└── common/          # Guards globais, decoradores e utilitários partilhados
 ```
 
-## Compile and run the project
+**Fluxo de pedido:**
+```
+Cliente → ThrottlerGuard (30 req/min) → GlobalAuthGuard → RolesGuard → Controller → Service → Prisma/OpenAI/Redis
+```
+
+---
+
+## Pré-requisitos
+
+- Node.js >= 20
+- npm >= 10
+- Docker + Docker Compose
+- (Opcional) WSL2 com Ubuntu para desenvolvimento local
+
+---
+
+## Variáveis de Ambiente
+
+Cria um ficheiro `.env` na raiz do projeto com base no seguinte template:
+
+```env
+# Servidor
+PORT=3000
+NODE_ENV=development
+
+# Base de Dados
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/learninghub
+
+# JWT
+JWT_SECRET=
+JWT_ACCESS_TOKEN_EXPIRES_IN=15m
+JWT_REFRESH_TOKEN_SECRET=
+JWT_REFRESH_TOKEN_EXPIRES_IN=7d
+JWT_VERIFICATION_TOKEN_SECRET=
+JWT_VERIFICATION_TOKEN_EXPIRES_IN=1d
+JWT_PASSWORD_RESET_TOKEN_SECRET=
+JWT_PASSWORD_RESET_TOKEN_EXPIRES_IN=1h
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+
+# OpenAI
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4-turbo
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+
+# Azure Blob Storage
+AZURE_STORAGE_CONNECTION_STRING=
+AZURE_CONTAINER_NAME=certificates
+```
+
+---
+
+## Correr com Docker
+
+A forma mais simples de correr toda a infraestrutura (PostgreSQL + pgvector, pgAdmin, Redis):
 
 ```bash
-# development
-$ npm run start
+# Iniciar todos os serviços
+docker compose up -d
 
-# watch mode
-$ npm run start:dev
+# Verificar que estão a correr
+docker compose ps
 
-# production mode
-$ npm run start:prod
+# Parar os serviços
+docker compose down
 ```
+
+Serviços disponíveis após arranque:
+
+| Serviço | URL / Porta |
+|---|---|
+| PostgreSQL | `localhost:5432` |
+| pgAdmin | http://localhost:5050 (admin@local / admin) |
+| Redis | `localhost:6379` |
+
+---
+
+## Correr o Backend em WSL
+
+> Estes passos assumem WSL2 com Ubuntu e Docker Desktop com integração WSL ativa.
+
+```bash
+# 1. Clonar o repositório (dentro do WSL)
+git clone <url-do-repositório>
+cd learninghub-softinsa-backend
+
+# 2. Instalar dependências
+npm ci
+
+# 3. Criar o ficheiro .env (ver secção Variáveis de Ambiente)
+cp .env.example .env
+# Editar .env com os valores corretos
+
+# 4. Iniciar a infraestrutura com Docker
+docker compose up -d
+
+# 5. Gerar o cliente Prisma
+npx prisma generate
+
+# 6. Aplicar migrações
+npx prisma migrate deploy
+
+# 7. (Opcional) Popular a base de dados com dados iniciais
+npx prisma db seed
+
+# 8. Arrancar o servidor em modo desenvolvimento
+npm run start:dev
+```
+
+A API fica disponível em: `http://localhost:3000/api`  
+Swagger: `http://localhost:3000/docs`
+
+---
+
+## Correr o Frontend em Windows
+
+> O frontend é um repositório separado. Clonar e correr directamente no Windows (não é necessário WSL).
+
+```powershell
+# 1. Clonar o repositório do frontend
+git clone <url-do-frontend>
+cd learninghub-softinsa-frontend
+
+# 2. Instalar dependências
+npm ci
+
+# 3. Criar o ficheiro .env.local
+# Definir a URL da API, por exemplo:
+# NEXT_PUBLIC_API_URL=http://localhost:3000/api
+
+# 4. Arrancar o servidor de desenvolvimento
+npm run dev
+```
+
+O frontend fica disponível em: `http://localhost:3000` (ou a porta configurada).
+
+> **Nota:** O backend deve estar a correr no WSL antes de iniciar o frontend. O Windows acede ao WSL via `localhost` automaticamente.
+
+---
+
+## Migrações de Base de Dados
+
+```bash
+# Aplicar todas as migrações pendentes (produção / QA)
+npx prisma migrate deploy
+
+# Criar uma nova migração em desenvolvimento
+npx prisma migrate dev --name <nome-da-migração>
+
+# Validar o schema sem aplicar alterações
+npx prisma validate
+
+# Abrir o Prisma Studio (interface visual da BD)
+npx prisma studio
+
+# Repor a base de dados e re-aplicar todas as migrações (⚠️ destrói dados)
+npx prisma migrate reset
+```
+
+---
+
+## Scripts Disponíveis
+
+```bash
+npm run start:dev     # Modo desenvolvimento com hot-reload
+npm run start:prod    # Modo produção (requer build prévio)
+npm run build         # Compilar TypeScript
+npm run lint          # Verificar erros de linting
+npm run format        # Formatar código com Prettier
+npm run test          # Testes unitários
+npm run test:cov      # Testes com cobertura
+npm run test:e2e      # Testes end-to-end
+```
+
+---
+
+## Documentação da API
+
+Com o servidor em execução, a documentação Swagger está disponível em:
+
+```
+http://localhost:3000/docs
+```
+
+Todos os endpoints protegidos requerem autenticação Bearer JWT. Usar o botão **Authorize** no Swagger para introduzir o token.
+
+---
 
 ## Run tests
 

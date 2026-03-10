@@ -47,7 +47,7 @@ export class MicrosoftLearnAdapter implements IPlatformAdapter {
 
       const rawResults = (response.data as { results?: unknown[] })?.results ?? [];
 
-      return rawResults.map((item) => this.normalize(item));
+      return rawResults.map((item) => this.normalize(item as Record<string, unknown>));
     } catch (error: unknown) {
       this.logger.error(`[MS Learn] Erro ao pesquisar: ${String(error)}`);
       return [];

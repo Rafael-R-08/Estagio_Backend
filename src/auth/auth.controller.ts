@@ -8,6 +8,7 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UpdateUserSettingsDto } from './dto/update-user-settings.dto';
 
 interface AuthRequest extends Request {
   user: { userId: string; email: string; role: string };
@@ -90,5 +91,21 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Token inválido' })
   resetPassword(@Query('token') token: string, @Body('newPassword') newPassword: string) {
     return this.auth.resetPassword(token, newPassword);
+  }
+
+  @Get('me/settings')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Obter definições do utilizador autenticado' })
+  @ApiResponse({ status: 200, description: 'Definições do utilizador' })
+  getMySettings(@Req() req: AuthRequest) {
+    return this.auth.getSettings(req.user.userId);
+  }
+
+  @Patch('me/settings')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Atualizar definições do utilizador autenticado' })
+  @ApiResponse({ status: 200, description: 'Definições atualizadas' })
+  updateMySettings(@Req() req: AuthRequest, @Body() dto: UpdateUserSettingsDto) {
+    return this.auth.upsertSettings(req.user.userId, dto);
   }
 }

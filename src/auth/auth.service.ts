@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { UpdateUserSettingsDto } from './dto/update-user-settings.dto';
 import { Role } from '@prisma/client';
 
 @Injectable()
@@ -52,6 +53,8 @@ export class AuthService {
     });
     if (!user) throw new UnauthorizedException('Invalid credentials');
 
+    if (!user.isActive) throw new UnauthorizedException('Account is disabled');
+
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
 
@@ -82,6 +85,10 @@ export class AuthService {
         experienceLevel: true,
         techStack: true,
         interests: true,
+        jobTitle: true,
+        department: true,
+        location: true,
+        preferredLanguage: true,
       },
     });
     if (!user) throw new UnauthorizedException('User not found');
@@ -90,13 +97,17 @@ export class AuthService {
 
   async updateProfile(
     userId: string,
-    dto: { name?: string; experienceLevel?: string; techStack?: string[]; interests?: string[] },
+    dto: { name?: string; experienceLevel?: string; techStack?: string[]; interests?: string[]; jobTitle?: string; department?: string; location?: string; preferredLanguage?: string },
   ) {
     const data: Record<string, unknown> = {};
     if (dto.name !== undefined) data.name = dto.name;
     if (dto.experienceLevel !== undefined) data.experienceLevel = dto.experienceLevel;
     if (dto.techStack !== undefined) data.techStack = dto.techStack;
     if (dto.interests !== undefined) data.interests = dto.interests;
+    if (dto.jobTitle !== undefined) data.jobTitle = dto.jobTitle;
+    if (dto.department !== undefined) data.department = dto.department;
+    if (dto.location !== undefined) data.location = dto.location;
+    if (dto.preferredLanguage !== undefined) data.preferredLanguage = dto.preferredLanguage;
 
     const user = await this.prisma.user.update({
       where: { id: userId },
@@ -109,9 +120,42 @@ export class AuthService {
         experienceLevel: true,
         techStack: true,
         interests: true,
+        jobTitle: true,
+        department: true,
+        location: true,
+        preferredLanguage: true,
       },
     });
     return user;
+  }
+
+  async getSettings(userId: string) {
+    const settings = await this.prisma.userSettings.findUnique({
+      where: { userId },
+    });
+    if (settings) return settings;
+    return {
+      userId,
+      aiResponseDetail: null,
+      aiResponseLanguage: null,
+      aiExplainReasoning: false,
+      aiRecommendationMode: null,
+      notifyWeeklyRecs: true,
+      notifyCertExpiry: true,
+      notifyProgress: true,
+      notifyByEmail: true,
+      notifyInApp: true,
+      adminCanSeeRecs: true,
+      aiCanUseHistory: true,
+    };
+  }
+
+  async upsertSettings(userId: string, dto: UpdateUserSettingsDto) {
+    return this.prisma.userSettings.upsert({
+      where: { userId },
+      update: dto,
+      create: { userId, ...dto },
+    });
   }
 
   private async generateTokens(sub: string, email: string, role: Role) {

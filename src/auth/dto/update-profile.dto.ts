@@ -1,10 +1,12 @@
 import { IsOptional, IsString, IsEnum, IsArray } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
 export enum ExperienceLevel {
-  JUNIOR = 'JUNIOR',
-  MID = 'MID',
-  SENIOR = 'SENIOR',
+  JUNIOR = 'junior',
+  MID = 'mid',
+  SENIOR = 'senior',
+  LEAD = 'lead',
 }
 
 export class UpdateProfileDto {
@@ -15,6 +17,7 @@ export class UpdateProfileDto {
 
   @ApiProperty({ required: false, enum: ExperienceLevel })
   @IsOptional()
+  @Transform(({ value }) => value?.toLowerCase())
   @IsEnum(ExperienceLevel)
   experienceLevel?: ExperienceLevel;
 
@@ -29,4 +32,26 @@ export class UpdateProfileDto {
   @IsArray()
   @IsString({ each: true })
   interests?: string[];
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  jobTitle?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  department?: string;
+
+  @ApiProperty({ required: false, enum: ['escritorio', 'remoto', 'hibrido'] })
+  @IsOptional()
+  @Transform(({ value }) => value?.toLowerCase())
+  @IsString()
+  location?: string;
+
+  @ApiProperty({ required: false, enum: ['PT', 'EN', 'ES', 'FR'] })
+  @IsOptional()
+  @Transform(({ value }) => value?.toUpperCase())
+  @IsString()
+  preferredLanguage?: string;
 }

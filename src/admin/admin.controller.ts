@@ -4,6 +4,11 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { AdminService } from './admin.service';
 import { UpdateAdminUserDto } from './dto/update-admin-user.dto';
 import { UpdateAdminPlatformDto } from './dto/update-admin-platform.dto';
+import { Role } from '@prisma/client';
+
+class UpdateRoleDto {
+  role: Role;
+}
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -30,6 +35,24 @@ export class AdminController {
   @ApiOperation({ summary: 'Atualizar utilizador (role, isActive, name)' })
   updateUser(@Param('id') id: string, @Body() dto: UpdateAdminUserDto) {
     return this.adminService.updateUser(id, dto);
+  }
+
+  @Patch('users/:id/role')
+  @ApiOperation({ summary: 'Atualizar role do utilizador' })
+  updateUserRole(@Param('id') id: string, @Body() dto: UpdateRoleDto) {
+    return this.adminService.updateUser(id, { role: dto.role });
+  }
+
+  @Patch('users/:id/deactivate')
+  @ApiOperation({ summary: 'Desativar utilizador' })
+  deactivateUser(@Param('id') id: string) {
+    return this.adminService.updateUser(id, { isActive: false });
+  }
+
+  @Patch('users/:id/activate')
+  @ApiOperation({ summary: 'Ativar utilizador' })
+  activateUser(@Param('id') id: string) {
+    return this.adminService.updateUser(id, { isActive: true });
   }
 
   @Delete('users/:id')

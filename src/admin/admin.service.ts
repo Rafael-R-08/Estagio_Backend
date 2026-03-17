@@ -5,7 +5,7 @@ import { UpdateAdminPlatformDto } from './dto/update-admin-platform.dto';
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   // ── Users ────────────────────────────────────────────────────────────────
 

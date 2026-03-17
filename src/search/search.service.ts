@@ -6,6 +6,10 @@ import { SearchQueryDto } from './dto/search-query.dto';
 import { CourseResult, IPlatformAdapter } from './interfaces/platform-adapter.interface';
 import { MicrosoftLearnAdapter } from './adapters/microsoft-learn.adapter';
 import { AcademiaPortugalDigitalAdapter } from './adapters/academia-portugal-digital.adapter';
+import { UdemyAdapter } from './adapters/udemy.adapter';
+import { TrailheadAdapter } from './adapters/trailhead.adapter';
+import { IbmSkillsBuildAdapter } from './adapters/ibm-skillsbuild.adapter';
+import { SoftinsaLearningAdapter } from './adapters/softinsa-learning.adapter';
 
 export interface SearchResponse {
   query: string;
@@ -51,19 +55,10 @@ export class SearchService {
       return { query: q, total: 0, results: [], platforms: [], semanticRanking: false };
     }
 
-    // 2. Filtrar plataformas pela preferência do utilizador (só se não houver filtro explícito)
+    // 2. Sempre pesquisa em todas as plataformas ativas, a não ser que haja um filtro explícito na query.
+    // (Anteriormente, usava-se o userPreferences.enabledPlatforms como fallback, o que escondia novas
+    // plataformas acabadas de ser adicionadas pelo admin até o utilizador as ativar manualmente).
     let activePlatformIds = platforms.map((p) => p.id);
-    if (userId && !platformNames?.length) {
-      const prefs = await this.prisma.userPreferences.findUnique({
-        where: { userId },
-        select: { enabledPlatforms: true },
-      });
-      if (prefs?.enabledPlatforms?.length) {
-        activePlatformIds = activePlatformIds.filter((id) =>
-          prefs.enabledPlatforms.includes(id),
-        );
-      }
-    }
 
     const activePlatforms = platforms.filter((p) =>
       activePlatformIds.includes(p.id),
@@ -330,6 +325,14 @@ export class SearchService {
         return new MicrosoftLearnAdapter(this.http, cfg);
       case 'Academia Portugal Digital':
         return new AcademiaPortugalDigitalAdapter(this.http, cfg);
+      case 'Udemy':
+        return new UdemyAdapter(this.http, cfg);
+      case 'Trailhead':
+        return new TrailheadAdapter(this.http, cfg);
+      case 'IBM SkillsBuild':
+        return new IbmSkillsBuildAdapter(this.http, cfg);
+      case 'Softinsa Everyday Learning':
+        return new SoftinsaLearningAdapter(this.prisma, cfg);
       default:
         this.logger.warn(`[Search] Sem adapter para plataforma: ${platform.name}`);
         return null;

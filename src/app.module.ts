@@ -15,6 +15,7 @@ import { CertificatesModule } from './certificates/certificates.module';
 import { SearchModule } from './search/search.module';
 import { OllamaCacheModule } from './cache/ollama-cache.module';
 import { AdminModule } from './admin/admin.module';
+import { SoftinsaLearningModule } from './softinsa-learning/softinsa-learning.module';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -42,6 +43,7 @@ import configuration from './config/configuration';
     CertificatesModule,
     SearchModule,
     AdminModule,
+    SoftinsaLearningModule,
   ],
 
   controllers: [AppController],

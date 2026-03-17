@@ -78,6 +78,32 @@ async function main() {
         config: {},
       },
     }),
+
+    prisma.learningPlatform.upsert({
+      where: { name: 'IBM SkillsBuild' },
+      update: {},
+      create: {
+        name: 'IBM SkillsBuild',
+        type: 'Tech',
+        apiKeyRequired: false,
+        enabled: true,
+        searchEnabled: true,
+        config: {},
+      },
+    }),
+
+    prisma.learningPlatform.upsert({
+      where: { name: 'Softinsa Everyday Learning' },
+      update: {},
+      create: {
+        name: 'Softinsa Everyday Learning',
+        type: 'Internal',
+        apiKeyRequired: false,
+        enabled: true,
+        searchEnabled: true,
+        config: {},
+      },
+    }),
   ]);
 
   const udemy = platforms[0];

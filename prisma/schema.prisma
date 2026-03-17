@@ -178,6 +178,25 @@ model ScrapedPage {
   @@index([url])
 }
 
+// Conteúdo de formação interna da Softinsa (Everyday Learning)
+model SoftinsaLearning {
+  id             String       @id @default(uuid())
+  title          String
+  description    String?      @db.Text
+  url            String?
+  department     String?      // Departamento alvo (ex: "IT", "Sales")
+  mandatory      Boolean      @default(false)
+  skills         String[]     // Competências internas
+  level          CourseLevel?
+  durationHours  Float?
+  hasCertificate Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([mandatory])
+  @@index([department])
+}
+
 model RefreshToken {
   id        String   @id @default(uuid())
   userId    String

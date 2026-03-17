@@ -4,6 +4,7 @@ services:
   db:
     image: pgvector/pgvector:pg16
     container_name: learninghub-db
+    restart: unless-stopped
     environment:
       POSTGRES_DB: learninghub
       POSTGRES_USER: postgres
@@ -21,6 +22,7 @@ services:
   pgadmin:
     image: dpage/pgadmin4:8
     container_name: learninghub-pgadmin
+    restart: unless-stopped
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@local
       PGADMIN_DEFAULT_PASSWORD: admin
@@ -32,6 +34,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: learninghub-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:

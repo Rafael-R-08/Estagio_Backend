@@ -25,7 +25,9 @@ export class MicrosoftLearnAdapter implements IPlatformAdapter {
     private readonly platform: PlatformConfig,
   ) {}
 
-  async search(query: string, limit: number): Promise<CourseResult[]> {
+  async search(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number }): Promise<CourseResult[]> {
+    if (filters?.isFree === false) return []; // MS Learn é gratuito
+
     try {
       this.logger.log(`[MS Learn] A pesquisar: "${query}"`);
 
@@ -82,6 +84,7 @@ export class MicrosoftLearnAdapter implements IPlatformAdapter {
       description,
       url,
       level,
+      isFree: true,
       tags,
       platformId: this.platform.id,
       platformName: this.platformName,

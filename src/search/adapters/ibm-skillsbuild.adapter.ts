@@ -33,7 +33,9 @@ export class IbmSkillsBuildAdapter implements IPlatformAdapter {
     private readonly platform: PlatformConfig,
   ) {}
 
-  async search(query: string, limit: number): Promise<CourseResult[]> {
+  async search(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number }): Promise<CourseResult[]> {
+    if (filters?.isFree === false) return []; // IBM SkillsBuild é gratuito
+
     const allCourses = await this.getAllCourses();
     this.logger.log(`[IBM SkillsBuild] Total em cache: ${allCourses.length}`);
 
@@ -244,6 +246,7 @@ export class IbmSkillsBuildAdapter implements IPlatformAdapter {
       url,
       level,
       durationHours: durationHours || undefined,
+      isFree: true,
       tags: Array.isArray(tags) ? tags.map(String).filter(Boolean) : [],
       platformId: this.platform.id,
       platformName: this.platformName,

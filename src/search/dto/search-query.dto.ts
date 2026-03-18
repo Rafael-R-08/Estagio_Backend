@@ -1,13 +1,15 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsInt,
+  IsBoolean,
+  IsNumber,
   IsOptional,
   IsString,
   Max,
   Min,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
 
 export class SearchQueryDto {
   @ApiProperty({ description: 'Termo de pesquisa', example: 'Azure DevOps' })
@@ -38,4 +40,18 @@ export class SearchQueryDto {
   @IsArray()
   @IsString({ each: true })
   platforms?: string[];
+
+  @ApiProperty({ description: 'Apenas cursos gratuitos ou pagos (opcional)', required: false })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === true || value === '1')
+  isFree?: boolean;
+
+  @ApiProperty({ description: 'Classificação mínima suportada (0 a 5)', required: false })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(5)
+  minRating?: number;
 }

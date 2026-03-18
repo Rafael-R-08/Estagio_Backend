@@ -19,7 +19,9 @@ export class SoftinsaLearningAdapter implements IPlatformAdapter {
     private readonly platform: PlatformConfig,
   ) {}
 
-  async search(query: string, limit: number): Promise<CourseResult[]> {
+  async search(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number }): Promise<CourseResult[]> {
+    if (filters?.isFree === false) return []; // Cursos internos são gratuitos
+
     this.logger.log(`[Softinsa Learning] A pesquisar: "${query}"`);
 
     const terms = query.split(/\s+/).filter(Boolean);
@@ -46,6 +48,7 @@ export class SoftinsaLearningAdapter implements IPlatformAdapter {
       url: r.url ?? `https://intranet.softinsa.com/learning`,
       level: r.level as CourseResult['level'] | undefined,
       durationHours: r.durationHours ?? undefined,
+      isFree: true,
       tags: [
         ...r.skills,
         ...(r.mandatory ? ['obrigatório'] : []),

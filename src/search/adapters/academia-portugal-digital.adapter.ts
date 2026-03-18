@@ -33,7 +33,9 @@ export class AcademiaPortugalDigitalAdapter implements IPlatformAdapter {
     private readonly platform: PlatformConfig,
   ) {}
 
-  async search(query: string, limit: number): Promise<CourseResult[]> {
+  async search(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number }): Promise<CourseResult[]> {
+    if (filters?.isFree === false) return []; // Academia PT é gratuito
+
     const allCourses = await this.getAllCourses();
     this.logger.log(`[Academia PT Digital] Total em cache: ${allCourses.length}`);
 
@@ -223,6 +225,7 @@ export class AcademiaPortugalDigitalAdapter implements IPlatformAdapter {
         url: courseUrl,
         level: LEVEL_MAP[levelRaw],
         durationHours: hours || undefined,
+        isFree: true,
         tags: [],
         platformId: this.platform.id,
         platformName: this.platformName,

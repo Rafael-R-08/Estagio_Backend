@@ -95,6 +95,17 @@ export class CertificatesController {
   }
 
   /**
+   * GET /certificates/renewal-alerts
+   * Devolve sugerencias inteligentes baseadas nos meses-chave preferidos do user
+   */
+  @Get('renewal-alerts')
+  @ApiOperation({ summary: 'Obter alertas inteligentes de renovação baseados no limite escolhido pelo utilizador' })
+  @ApiResponse({ status: 200, description: 'Alertas rigorosos e reciclagens sugeridas de conhecimento antigo' })
+  getRenewalAlerts(@Req() req: AuthRequest) {
+    return this.certificatesService.getRenewalAlerts(req.user.userId);
+  }
+
+  /**
    * GET /certificates/:id
    * Ver certificado específico
    */

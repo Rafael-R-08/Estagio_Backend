@@ -11,6 +11,9 @@ import { AzureBlobService } from './azure-blob.service';
 import { CreateCertificateDto } from './dto/create-certificate.dto';
 import { UpdateCertificateDto } from './dto/update-certificate.dto';
 import { basename } from 'path';
+import axios from 'axios';
+import * as Tesseract from 'tesseract.js';
+const pdfParse = require('pdf-parse');
 
 @Injectable()
 export class CertificatesService {
@@ -52,6 +55,8 @@ export class CertificatesService {
       training.title,
       file.originalname,
       dto,
+      file.buffer,
+      file.mimetype,
     );
 
     return this.prisma.certificate.create({
@@ -133,10 +138,23 @@ export class CertificatesService {
       where: { id: cert.trainingId },
     });
 
+    let buffer: Buffer | undefined;
+    let mimetype: string | undefined;
+
+    try {
+      const response = await axios.get(cert.fileUrl, { responseType: 'arraybuffer' });
+      buffer = Buffer.from(response.data);
+      mimetype = response.headers['content-type'];
+    } catch (e) {
+      this.logger.warn(`Failed to remotely download cert file for reextraction: ${e}`);
+    }
+
     const extracted = await this.extractMetadataWithAI(
       training?.title || cert.courseName || '',
       basename(cert.fileUrl),
       {},
+      buffer,
+      mimetype,
     );
 
     return this.prisma.certificate.update({
@@ -145,11 +163,13 @@ export class CertificatesService {
     });
   }
 
-  // ---- Extração de metadados com Ollama ----
+  // ---- Extração de metadados com Ollama & OCR ----
   private async extractMetadataWithAI(
     courseTitle: string,
     filename: string,
     hints: Partial<CreateCertificateDto>,
+    fileBuffer?: Buffer,
+    mimetype?: string,
   ): Promise<{
     courseName?: string;
     provider?: string;
@@ -159,19 +179,43 @@ export class CertificatesService {
     confidence: string;
   }> {
     try {
-      const prompt = `Analisa as seguintes informações sobre um certificado de formação e extrai os metadados em JSON.
+      let documentExtraText = '';
 
-Título do curso: "${courseTitle}"
-Nome do ficheiro: "${filename}"
-${hints.courseName ? `Nome fornecido: "${hints.courseName}"` : ''}
+      if (fileBuffer && mimetype) {
+        try {
+          if (mimetype === 'application/pdf') {
+            const pdfData = await pdfParse(fileBuffer);
+            documentExtraText = pdfData.text;
+          } else if (mimetype.startsWith('image/')) {
+            const result = await Tesseract.recognize(fileBuffer, 'eng+por', { logger: () => {} });
+            documentExtraText = result.data.text;
+          }
+        } catch (e) {
+          this.logger.warn('Falha na extração de texto OCR/PDF: ' + e);
+        }
+      }
+
+      if (documentExtraText.length > 2500) {
+        documentExtraText = documentExtraText.substring(0, 2500);
+      }
+
+      const prompt = `Analisa as informações do certificado e extrai os metadados em JSON. Baseia-te preferencialmente no conteúdo extraído do próprio documento.
+
+Título da Formação Esperada: "${courseTitle}"
+Nome do Ficheiro Original: "${filename}"
+${hints.courseName ? `Nome fornecido pelo utilizador: "${hints.courseName}"` : ''}
 ${hints.provider ? `Fornecedor: "${hints.provider}"` : ''}
+
+=== CONTEÚDO EXTRAÍDO DO DOCUMENTO (VIA OCR) ===
+${documentExtraText ? documentExtraText : '(sem conteúdo extraído, faz o teu melhor com os nomes)'}
+================================================
 
 Responde APENAS com um JSON válido com estes campos (usa null se não conseguires determinar):
 {
   "courseName": "nome completo do curso",
   "provider": "empresa/plataforma que emitiu (ex: Microsoft, Salesforce, IBM, Udemy)",
   "completionDate": "data ISO 8601 ou null",
-  "expirationDate": "data ISO 8601 ou null (tipicamente 2-3 anos após conclusão para certs cloud)",
+  "expirationDate": "data ISO 8601 ou null",
   "durationHours": número ou null,
   "confidence": "high|medium|low"
 }`;
@@ -213,5 +257,63 @@ Responde APENAS com um JSON válido com estes campos (usa null se não conseguir
       },
       include: { training: { select: { id: true, title: true, url: true, status: true } } },
     });
+  }
+
+  async getRenewalAlerts(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { preferences: true },
+    });
+    if (!user) throw new NotFoundException('Utilizador não encontrado.');
+
+    const monthsAdvance = user.preferences?.renewalPeriodMonths || 6;
+    const now = new Date();
+    
+    const alertThresholdDate = new Date();
+    alertThresholdDate.setMonth(now.getMonth() + monthsAdvance);
+
+    const expiringCerts = await this.prisma.certificate.findMany({
+      where: {
+        userId,
+        expirationDate: {
+          not: null,
+          gte: now,
+          lte: alertThresholdDate,
+        },
+      },
+      include: { training: true },
+    });
+
+    const staleThresholdDate = new Date();
+    staleThresholdDate.setMonth(now.getMonth() - 24);
+
+    const oldKnowledgeCerts = await this.prisma.certificate.findMany({
+      where: {
+        userId,
+        expirationDate: null,
+        completionDate: {
+          not: null,
+          lte: staleThresholdDate,
+        },
+      },
+      include: { training: true },
+    });
+
+    return {
+      expiringAlerts: expiringCerts.map(c => ({
+        certificateId: c.id,
+        courseName: c.courseName || c.training.title,
+        expirationDate: c.expirationDate,
+        daysRemaining: Math.ceil((c.expirationDate!.getTime() - now.getTime()) / (1000 * 3600 * 24)),
+        message: `A certificação em "${c.courseName || c.training.title}" expira dentro de ${monthsAdvance} meses!`,
+      })),
+      staleKnowledgeSuggestions: oldKnowledgeCerts.map(c => ({
+        certificateId: c.id,
+        courseName: c.courseName || c.training.title,
+        completionDate: c.completionDate,
+        monthsSinceCompletion: Math.floor((now.getTime() - c.completionDate!.getTime()) / (1000 * 3600 * 24 * 30)),
+        message: `Já concluíste "${c.courseName || c.training.title}" há mais de 2 anos. Pode ser uma boa altura para reciclar estes conhecimentos.`,
+      })),
+    };
   }
 }

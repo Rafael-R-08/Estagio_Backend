@@ -24,6 +24,7 @@ enum ExperienceLevel {
 }
 
 enum TrainingStatus {
+  accessed
   ongoing
   completed
   priority
@@ -39,93 +40,93 @@ enum CourseLevel {
 // ---- Core Models ----
 
 model User {
-  id              String            @id @default(uuid())
-  email           String            @unique
-  emailVerified   Boolean           @default(false)
+  id              String           @id @default(uuid())
+  email           String           @unique
+  emailVerified   Boolean          @default(false)
   refreshTokens   RefreshToken[]
   passwordHash    String
   name            String?
-  role            Role              @default(USER)
+  role            Role             @default(USER)
   experienceLevel ExperienceLevel?
-  techStack       String[]          // ex: ["React","Node.js","Azure"]
-  interests       String[]          // ex: ["Cloud","DevOps"]
+  techStack       String[] // ex: ["React","Node.js","Azure"]
+  interests       String[] // ex: ["Cloud","DevOps"]
 
-  jobTitle        String?
-  department      String?
-  location        String?           // 'escritorio' | 'remoto' | 'hibrido'
-  preferredLanguage String?         // 'PT' | 'EN' | 'ES' | 'FR'
+  jobTitle          String?
+  department        String?
+  location          String? // 'escritorio' | 'remoto' | 'hibrido'
+  preferredLanguage String? // 'PT' | 'EN' | 'ES' | 'FR'
 
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  isActive        Boolean           @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  isActive  Boolean  @default(true)
 
   // relações
-  trainings       TrainingRecord[]
-  certificates    Certificate[]
-  preferences     UserPreferences?
-  settings        UserSettings?
+  trainings    TrainingRecord[]
+  certificates Certificate[]
+  preferences  UserPreferences?
+  settings     UserSettings?
 }
 
 // Plataformas
 model LearningPlatform {
-  id               String    @id @default(uuid())
-  name             String    @unique
-  type             String
-  apiEndpoint      String?
-  apiKeyRequired   Boolean   @default(false)
-  apiKey           String?
-  enabled          Boolean   @default(true)
-  searchEnabled    Boolean   @default(true)
-  config           Json      @default("{}")
+  id             String  @id @default(uuid())
+  name           String  @unique
+  type           String
+  apiEndpoint    String?
+  apiKeyRequired Boolean @default(false)
+  apiKey         String?
+  enabled        Boolean @default(true)
+  searchEnabled  Boolean @default(true)
+  config         Json    @default("{}")
 
   // relações
-  trainings        TrainingRecord[]
-  courses          Course[]
+  trainings TrainingRecord[]
+  courses   Course[]
 }
 
 // Registos de treino por utilizador (estado, rating, notas, timestamps)
 model TrainingRecord {
-  id             String             @id @default(uuid())
-  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId         String
-  platform       LearningPlatform?  @relation(fields: [platformId], references: [id])
-  platformId     String?
+  id         String            @id @default(uuid())
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  platform   LearningPlatform? @relation(fields: [platformId], references: [id])
+  platformId String?
 
-  title          String
-  url            String
-  status         TrainingStatus
-  startedAt      DateTime?
-  completedAt    DateTime?
-  durationHours  Int?
-  notes          String?
-  rating         Int?               @db.SmallInt 
+  title         String
+  url           String
+  status        TrainingStatus
+  startedAt     DateTime?
+  completedAt   DateTime?
+  durationHours Int?
+  notes         String?
+  rating        Int?           @db.SmallInt
 
-  createdAt      DateTime           @default(now())
+  createdAt DateTime @default(now())
 
   // 1:1 opcional – um treino pode (ou não) ter certificado
-  certificate    Certificate?
-  
+  certificate Certificate?
+
   @@index([userId])
   @@index([status])
 }
 
 // Certificados (evidências), associados ao treino e ao utilizador (renovações)
 model Certificate {
-  id               String         @id @default(uuid())
-  training         TrainingRecord @relation(fields: [trainingId], references: [id], onDelete: Cascade)
-  trainingId       String         @unique   
-  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId           String
+  id         String         @id @default(uuid())
+  training   TrainingRecord @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  trainingId String         @unique
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
 
-  fileUrl          String
-  courseName       String?
-  provider         String?
-  completionDate   DateTime?
-  expirationDate   DateTime?
-  durationHours    Int?
+  fileUrl           String
+  courseName        String?
+  provider          String?
+  completionDate    DateTime?
+  expirationDate    DateTime?
+  durationHours     Int?
   extractedMetadata Json?
 
-  createdAt        DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([expirationDate])
@@ -133,35 +134,37 @@ model Certificate {
 
 // Preferências do utilizador (plataformas ativas, objetivos, notificações)
 model UserPreferences {
-  id                   String   @id @default(uuid())
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId               String   @unique
+  id     String @id @default(uuid())
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique
 
-  enabledPlatforms     String[]     // guarda IDs de LearningPlatform (strings UUID)
+  enabledPlatforms     String[] // guarda IDs de LearningPlatform (strings UUID)
   learningGoals        String[]
   notificationEmail    Boolean  @default(true)
   notificationRenewals Boolean  @default(true)
   reminderDays         Int      @default(30)
+  renewalPeriodMonths  Int      @default(6)
 }
 
 // Cache de cursos por plataforma (para unified search + recomendações)
 model Course {
-  id             String            @id @default(uuid())
-  platform       LearningPlatform  @relation(fields: [platformId], references: [id], onDelete: Cascade)
-  platformId     String
+  id         String           @id @default(uuid())
+  platform   LearningPlatform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+  platformId String
 
-  externalId     String
-  title          String
-  description    String?
-  url            String
-  instructor     String?
-  rating         Float?
-  durationHours  Int?
-  level          CourseLevel?
-  tags           String[]
-  embedding      Unsupported("vector")?  // pgvector type for semantic search
+  externalId    String
+  title         String
+  description   String?
+  url           String
+  instructor    String?
+  rating        Float?
+  durationHours Int?
+  level         CourseLevel?
+  isFree        Boolean?
+  tags          String[]
+  embedding     Unsupported("vector")? // pgvector type for semantic search
 
-  lastUpdated    DateTime          @default(now())
+  lastUpdated DateTime @default(now())
 
   @@index([platformId])
 }
@@ -184,9 +187,9 @@ model SoftinsaLearning {
   title          String
   description    String?      @db.Text
   url            String?
-  department     String?      // Departamento alvo (ex: "IT", "Sales")
+  department     String? // Departamento alvo (ex: "IT", "Sales")
   mandatory      Boolean      @default(false)
-  skills         String[]     // Competências internas
+  skills         String[] // Competências internas
   level          CourseLevel?
   durationHours  Float?
   hasCertificate Boolean      @default(false)
@@ -217,20 +220,20 @@ model UserSettings {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Preferências da IA
-  aiResponseDetail     String?   // "concise" | "detailed"
+  aiResponseDetail     String? // "concise" | "detailed"
   aiResponseLanguage   String?
-  aiExplainReasoning   Boolean   @default(false)
-  aiRecommendationMode String?   // "conservative" | "exploratory"
+  aiExplainReasoning   Boolean @default(false)
+  aiRecommendationMode String? // "conservative" | "exploratory"
 
   // Notificações
-  notifyWeeklyRecs  Boolean @default(true)
-  notifyCertExpiry  Boolean @default(true)
-  notifyProgress    Boolean @default(true)
-  notifyByEmail     Boolean @default(true)
-  notifyInApp       Boolean @default(true)
+  notifyWeeklyRecs Boolean @default(true)
+  notifyCertExpiry Boolean @default(true)
+  notifyProgress   Boolean @default(true)
+  notifyByEmail    Boolean @default(true)
+  notifyInApp      Boolean @default(true)
 
   // Interface
-  uiLanguage    String  @default("pt")   // "pt" | "en"
+  uiLanguage String @default("pt") // "pt" | "en"
 
   // Privacidade
   adminCanSeeRecs Boolean @default(true)
@@ -242,12 +245,12 @@ model UserSettings {
 
 // Chunks de texto para testes de embedding e pesquisa semântica
 model TextChunk {
-  id        String   @id @default(uuid())
-  content   String   @db.Text
-  embedding Unsupported("vector")?  // pgvector type for semantic search
-  metadata  Json?    // metadados opcionais (fonte, tags, etc)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String                 @id @default(uuid())
+  content   String                 @db.Text
+  embedding Unsupported("vector")? // pgvector type for semantic search
+  metadata  Json? // metadados opcionais (fonte, tags, etc)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
 
   @@index([createdAt])
 }

@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTrainingDto } from './dto/create-training.dto';
 import { UpdateTrainingDto } from './dto/update-training.dto';
 import { FilterTrainingDto } from './dto/filter-training.dto';
+import { TrackAccessDto } from './dto/track-access.dto';
 import { TrainingStatus } from '@prisma/client';
 
 @Injectable()
@@ -23,6 +24,36 @@ export class TrainingsService {
         notes: dto.notes ?? null,
         rating: dto.rating ?? null,
       },
+      include: { platform: { select: { id: true, name: true } } },
+    });
+  }
+
+  async trackAccess(userId: string, dto: TrackAccessDto) {
+    // Verifica se já existe um registo para este utilizador e URL
+    const existing = await this.prisma.trainingRecord.findFirst({
+      where: { userId, url: dto.url },
+    });
+
+    if (existing) {
+      return existing; // Não substitui para não perder o histórico de 'ongoing' ou 'completed'
+    }
+
+    return this.prisma.trainingRecord.create({
+      data: {
+        userId,
+        title: dto.title,
+        url: dto.url,
+        platformId: dto.platformId ?? null,
+        status: TrainingStatus.accessed,
+      },
+      include: { platform: { select: { id: true, name: true } } },
+    });
+  }
+
+  async getPendingFeedback(userId: string) {
+    return this.prisma.trainingRecord.findMany({
+      where: { userId, status: TrainingStatus.accessed },
+      orderBy: { createdAt: 'desc' },
       include: { platform: { select: { id: true, name: true } } },
     });
   }

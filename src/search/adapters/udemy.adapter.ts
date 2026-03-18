@@ -16,7 +16,7 @@ export class UdemyAdapter implements IPlatformAdapter {
     private readonly platform: PlatformConfig,
   ) {}
 
-  async search(query: string, limit: number): Promise<CourseResult[]> {
+  async search(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number }): Promise<CourseResult[]> {
     try {
       this.logger.log(`[Udemy] A pesquisar: "${query}"`);
 
@@ -30,6 +30,20 @@ export class UdemyAdapter implements IPlatformAdapter {
       const authHeader = `Basic ${this.platform.config.apiKey}`;
       const url = this.platform.apiEndpoint || 'https://www.udemy.com/api-2.0/courses/';
 
+      const params: any = {
+        search: query,
+        page_size: limit,
+        'fields[course]': 'title,headline,url,image_480x270,instructor_name,visible_instructors,is_paid,rating',
+      };
+
+      if (filters?.isFree !== undefined) {
+        params.price = filters.isFree ? 'price-free' : 'price-paid';
+      }
+      if (filters?.minRating !== undefined) {
+        // A API da udemy devolve na prop "rating" e aceita na querystring "ratings"
+        params.ratings = filters.minRating >= 4.5 ? '4.5' : filters.minRating >= 4.0 ? '4.0' : filters.minRating >= 3.0 ? '3.0' : undefined;
+      }
+
       const response = await firstValueFrom(
         this.http
           .get(url, {
@@ -37,11 +51,7 @@ export class UdemyAdapter implements IPlatformAdapter {
               Authorization: authHeader,
               Accept: 'application/json, text/plain, */*',
             },
-            params: {
-              search: query,
-              page_size: limit,
-              'fields[course]': 'title,headline,url,image_480x270,instructor_name,visible_instructors',
-            },
+            params,
           })
           .pipe(timeout(15_000)),
       );
@@ -78,6 +88,8 @@ export class UdemyAdapter implements IPlatformAdapter {
       description: String(item.headline ?? ''),
       url: finalUrl,
       instructor: instructorName,
+      rating: typeof item.rating === 'number' ? item.rating : undefined,
+      isFree: typeof item.is_paid === 'boolean' ? !item.is_paid : undefined,
       tags: [], 
       platformId: this.platform.id,
       platformName: this.platformName,

@@ -16,6 +16,7 @@ import { TrainingsService } from './trainings.service';
 import { CreateTrainingDto } from './dto/create-training.dto';
 import { UpdateTrainingDto } from './dto/update-training.dto';
 import { FilterTrainingDto } from './dto/filter-training.dto';
+import { TrackAccessDto } from './dto/track-access.dto';
 
 interface AuthRequest {
   user: { userId: string };
@@ -38,6 +39,31 @@ export class TrainingsController {
   create(@Req() req: AuthRequest, @Body() dto: CreateTrainingDto) {
     const userId = req.user.userId;
     return this.trainingsService.create(userId, dto);
+  }
+
+  /**
+   * POST /trainings/track-access
+   * Registar o clique num resultado de pesquisa para dar feedback no futuro
+   */
+  @Post('track-access')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Registar acesso a um curso' })
+  @ApiResponse({ status: 201, description: 'Registo de acesso criado/devolvido' })
+  trackAccess(@Req() req: AuthRequest, @Body() dto: TrackAccessDto) {
+    const userId = req.user.userId;
+    return this.trainingsService.trackAccess(userId, dto);
+  }
+
+  /**
+   * GET /trainings/pending-feedback
+   * Retorna todas as formações que o utilizador clicou na pesquisa mas que ainda têm status "accessed"
+   */
+  @Get('pending-feedback')
+  @ApiOperation({ summary: 'Listar cursos pendentes de feedback (status = accessed)' })
+  @ApiResponse({ status: 200, description: 'Lista de registos pendentes' })
+  getPendingFeedback(@Req() req: AuthRequest) {
+    const userId = req.user.userId;
+    return this.trainingsService.getPendingFeedback(userId);
   }
 
   /**

@@ -38,7 +38,7 @@ export class SearchService {
   }
 
   async search(dto: SearchQueryDto, userId?: string): Promise<SearchResponse> {
-    const { q, limit = 10, platforms: platformNames } = dto;
+    const { q, limit = 10, platforms: platformNames, isFree, minRating } = dto;
 
     // 1. Carregar plataformas activas da DB
     const platforms = await this.prisma.learningPlatform.findMany({
@@ -65,7 +65,7 @@ export class SearchService {
     );
 
     // 3. Tentar cache da DB primeiro
-    const cached = await this.searchFromCache(q, activePlatformIds, limit);
+    const cached = await this.searchFromCache(q, activePlatformIds, limit, isFree, minRating);
     if (cached.length > 0) {
       this.logger.log(`[Search] "${q}" → cache DB (${cached.length} resultados)`);
       let rankedCached = cached;
@@ -87,7 +87,7 @@ export class SearchService {
       .filter(Boolean) as IPlatformAdapter[];
 
     const rawResults = await Promise.allSettled(
-      adapters.map((adapter) => adapter.search(q, limit)),
+      adapters.map((adapter) => adapter.search(q, limit, { isFree, minRating })),
     );
 
     const allCourses: CourseResult[] = rawResults.flatMap((r) =>
@@ -98,8 +98,15 @@ export class SearchService {
       `[Search] "${q}" → ${allCourses.length} resultados de ${adapters.length} plataformas`,
     );
 
+    // Aplicar filtro de segurança sobre o array (caso adapters não suportem filtragem nativa)
+    const filteredCourses = allCourses.filter((c) => {
+      if (isFree !== undefined && c.isFree !== isFree) return false;
+      if (minRating !== undefined && (c.rating ?? 0) < minRating) return false;
+      return true;
+    });
+
     // 5. Ranking semântico com embeddings (assíncrono, best-effort)
-    let rankedCourses = allCourses;
+    let rankedCourses = filteredCourses;
     let semanticRanking = false;
 
     try {
@@ -130,6 +137,8 @@ export class SearchService {
     query: string,
     platformIds: string[],
     limit: number,
+    isFree?: boolean,
+    minRating?: number,
   ): Promise<CourseResult[]> {
     const terms = query.split(/\s+/).filter(Boolean);
     if (terms.length === 0) return [];
@@ -143,6 +152,8 @@ export class SearchService {
     const courses = await this.prisma.course.findMany({
       where: {
         platformId: { in: platformIds },
+        ...(isFree !== undefined ? { isFree } : {}),
+        ...(minRating !== undefined ? { rating: { gte: minRating } } : {}),
         OR: orConditions,
       },
       include: {
@@ -161,6 +172,7 @@ export class SearchService {
       rating: c.rating ?? undefined,
       durationHours: c.durationHours ?? undefined,
       level: c.level as CourseResult['level'] | undefined,
+      isFree: c.isFree === null ? undefined : c.isFree,
       tags: c.tags,
       platformId: c.platformId,
       platformName: c.platform.name,
@@ -237,6 +249,7 @@ export class SearchService {
             rating: course.rating,
             durationHours: course.durationHours,
             level: course.level,
+            isFree: course.isFree,
             tags: course.tags,
             lastUpdated: new Date(),
           },
@@ -253,6 +266,7 @@ export class SearchService {
             rating: course.rating,
             durationHours: course.durationHours,
             level: course.level,
+            isFree: course.isFree,
             tags: course.tags,
           },
         });
@@ -298,6 +312,7 @@ export class SearchService {
       rating: c.rating ?? undefined,
       durationHours: c.durationHours ?? undefined,
       level: c.level ?? undefined,
+      isFree: c.isFree === null ? undefined : c.isFree,
       tags: c.tags,
       platformId: c.platformId,
       platformName: c.platform.name,

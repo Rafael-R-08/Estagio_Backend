@@ -4,6 +4,7 @@ import { EmbeddingService, SearchResult } from '../ai/embedding.service';
 import {
   buildRagPrompt,
   buildRecommendationPrompt,
+  AiSettings,
 } from './prompt-templates/default.template';
 
 export interface RagResponse {
@@ -83,8 +84,10 @@ export class RagService {
       techStack?: string[];
       interests?: string[];
       experienceLevel?: string;
+      completedTrainings?: string[];
     } = {},
     topK: number = 5,
+    aiSettings: AiSettings = {},
   ): Promise<RagResponse> {
     this.logger.log(`RAG recommend: "${userQuery}"`);
 
@@ -105,9 +108,11 @@ export class RagService {
         techStack: userProfile.techStack ?? [],
         interests: userProfile.interests ?? [],
         experienceLevel: userProfile.experienceLevel ?? '',
+        completedTrainings: userProfile.completedTrainings ?? [],
       },
       context,
       userQuery,
+      aiSettings,
     );
 
     // 3. Enviar ao LLM

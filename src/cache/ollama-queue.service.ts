@@ -3,7 +3,7 @@ import { createClient, RedisClientType } from 'redis';
 
 const CACHE_TTL_SECONDS = 60 * 60; // 1 hora para respostas LLM
 const EMBED_TTL_SECONDS = 60 * 60 * 24; // 24 horas para embeddings (mais estáveis)
-const MAX_CONCURRENT = 2; // máximo de pedidos simultâneos ao Ollama
+const MAX_CONCURRENT = 1; // máximo de pedidos simultâneos ao Ollama
 
 @Injectable()
 export class OllamaQueueService implements OnModuleDestroy {

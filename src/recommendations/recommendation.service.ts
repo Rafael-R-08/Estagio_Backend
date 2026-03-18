@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RagService, RagResponse } from '../rag/rag.service';
+import { AiSettings } from '../rag/prompt-templates/default.template';
 
 @Injectable()
 export class RecommendationService {
@@ -21,40 +22,59 @@ export class RecommendationService {
   async recommendForUser(userId: string, query?: string): Promise<RagResponse> {
     this.logger.log(`Gerando recomendações para utilizador: ${userId}`);
 
-    // 1. Buscar dados completos do utilizador
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        name: true,
-        experienceLevel: true,
-        techStack: true,
-        interests: true,
-        preferences: {
-          select: {
-            learningGoals: true,
-            enabledPlatforms: true,
+    // 1. Buscar dados completos do utilizador (perfil + settings em paralelo)
+    const [user, settings] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          name: true,
+          experienceLevel: true,
+          techStack: true,
+          interests: true,
+          preferences: {
+            select: {
+              learningGoals: true,
+              enabledPlatforms: true,
+            },
           },
-        },
-        trainings: {
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-          select: {
-            title: true,
-            status: true,
-            rating: true,
-            platform: {
-              select: { name: true },
+          trainings: {
+            orderBy: { createdAt: 'desc' },
+            take: 10,
+            select: {
+              title: true,
+              status: true,
+              rating: true,
+              platform: {
+                select: { name: true },
+              },
             },
           },
         },
-      },
-    });
+      }),
+      this.prisma.userSettings.findUnique({ where: { userId } }),
+    ]);
 
     if (!user) {
       throw new NotFoundException('Utilizador não encontrado');
     }
 
-    // 2. Construir query enriquecida se não foi fornecida
+    // 2. Extrair preferências de IA das settings (com defaults seguros)
+    const aiSettings: AiSettings = {
+      aiResponseDetail: settings?.aiResponseDetail ?? null,
+      aiResponseLanguage: settings?.aiResponseLanguage ?? null,
+      aiExplainReasoning: settings?.aiExplainReasoning ?? false,
+      aiRecommendationMode: settings?.aiRecommendationMode ?? null,
+    };
+    const useHistory = settings?.aiCanUseHistory ?? true;
+
+    this.logger.log(
+      `Settings do utilizador - detalhe: ${aiSettings.aiResponseDetail}, ` +
+      `língua: ${aiSettings.aiResponseLanguage}, ` +
+      `modo: ${aiSettings.aiRecommendationMode}, ` +
+      `usar histórico: ${useHistory}`,
+    );
+
+    // 3. Construir query enriquecida se não foi fornecida
     const enrichedQuery =
       query ||
       this.buildDefaultQuery(
@@ -63,25 +83,33 @@ export class RecommendationService {
         user.preferences?.learningGoals ?? [],
       );
 
-    // 3. Construir perfil para o RAG
+    // 4. Construir perfil para o RAG
+    const completedTrainings = useHistory && user.trainings
+      ? user.trainings.filter(t => t.status === 'completed').map(t => t.title)
+      : [];
+
     const userProfile = {
       techStack: user.techStack,
       interests: user.interests,
       experienceLevel: user.experienceLevel ?? 'não definido',
+      completedTrainings,
     };
 
-    // 4. Construir contexto extra com histórico de treinos
-    const trainingContext = this.buildTrainingContext(user.trainings ?? []);
+    // 5. Histórico de treinos completo (para contexto visual/logging)
+    const trainingContext = useHistory
+      ? this.buildTrainingContext(user.trainings ?? [])
+      : '';
 
-    // 5. Chamar o RAG com o contexto completo
-    // topK=4 para não sobrecarregar modelos pequenos (gemma2:2b)
+    // 6. Chamar o RAG com o contexto completo e as settings de IA
+    // topK=2 para evitar injetar demasiado texto no prompt num CPU
     const ragResponse = await this.ragService.recommend(
       enrichedQuery,
       userProfile,
-      4,
+      2,
+      aiSettings,
     );
 
-    // 6. Enriquecer a resposta com o histórico
+    // 7. Enriquecer a resposta com o histórico (se permitido)
     return {
       ...ragResponse,
       answer: trainingContext

@@ -14,6 +14,8 @@ export interface CourseResult {
   similarityScore?: number;
   /** Score de relevância keyword (0 a 1) */
   relevanceScore?: number;
+  /** True se o curso é gratuito, false se é pago */
+  isFree?: boolean;
 }
 
 export interface PlatformConfig {
@@ -25,5 +27,5 @@ export interface PlatformConfig {
 
 export interface IPlatformAdapter {
   readonly platformName: string;
-  search(query: string, limit: number): Promise<CourseResult[]>;
+  search(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number }): Promise<CourseResult[]>;
 }

@@ -50,7 +50,9 @@ export class TrailheadAdapter implements IPlatformAdapter {
 
   // ─── Public Search ───────────────────────────────────────────────────────
 
-  async search(query: string, limit: number): Promise<CourseResult[]> {
+  async search(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number }): Promise<CourseResult[]> {
+    if (filters?.isFree === false) return []; // Trailhead é 100% gratuito
+
     const cfg = this.platform.config as Record<string, string>;
     const { clientId, clientSecret } = cfg;
 
@@ -186,6 +188,7 @@ export class TrailheadAdapter implements IPlatformAdapter {
       url,
       level,
       durationHours,
+      isFree: true,
       tags: [],
       platformId: this.platform.id,
       platformName: this.platformName,

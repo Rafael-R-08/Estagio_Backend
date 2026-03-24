@@ -3,17 +3,12 @@ import { createClient, RedisClientType } from 'redis';
 
 const CACHE_TTL_SECONDS = 60 * 60; // 1 hora para respostas LLM
 const EMBED_TTL_SECONDS = 60 * 60 * 24; // 24 horas para embeddings (mais estáveis)
-const MAX_CONCURRENT = 1; // máximo de pedidos simultâneos ao Ollama
 
 @Injectable()
-export class OllamaQueueService implements OnModuleDestroy {
-  private readonly logger = new Logger(OllamaQueueService.name);
+export class CacheService implements OnModuleDestroy {
+  private readonly logger = new Logger(CacheService.name);
   private redis: RedisClientType | null = null;
   private redisAvailable = false;
-
-  // Semáforo de concorrência
-  private activeRequests = 0;
-  private readonly queue: Array<() => void> = [];
 
   // Cache em memória como fallback
   private readonly memoryCache = new Map<string, { value: string; expiresAt: number }>();
@@ -54,11 +49,9 @@ export class OllamaQueueService implements OnModuleDestroy {
   }
 
   /**
-   * Encapsula uma chamada ao Ollama com:
-   * - Cache (Redis ou memória)
-   * - Controlo de concorrência (semáforo)
+   * Encapsula uma chamada com cache (Redis ou memória)
    */
-  async enqueue<T>(cacheKey: string, fn: () => Promise<T>): Promise<T> {
+  async getOrSet<T>(cacheKey: string, fn: () => Promise<T>): Promise<T> {
     // 1. Verificar cache
     const cached = await this.getFromCache(cacheKey);
     if (cached !== null) {
@@ -66,41 +59,14 @@ export class OllamaQueueService implements OnModuleDestroy {
       return JSON.parse(cached) as T;
     }
 
-    // 2. Aguardar slot de concorrência
-    await this.acquireSlot();
+    // 2. Executar a chamada
+    const result = await fn();
 
-    try {
-      // 3. Executar a chamada
-      const result = await fn();
+    // 3. Guardar no cache
+    const ttl = cacheKey.startsWith('embed:') ? EMBED_TTL_SECONDS : CACHE_TTL_SECONDS;
+    await this.setInCache(cacheKey, JSON.stringify(result), ttl);
 
-      // 4. Guardar no cache
-      const ttl = cacheKey.startsWith('embed:') ? EMBED_TTL_SECONDS : CACHE_TTL_SECONDS;
-      await this.setInCache(cacheKey, JSON.stringify(result), ttl);
-
-      return result;
-    } finally {
-      this.releaseSlot();
-    }
-  }
-
-  private async acquireSlot(): Promise<void> {
-    if (this.activeRequests < MAX_CONCURRENT) {
-      this.activeRequests++;
-      return;
-    }
-    // Aguarda na fila
-    return new Promise<void>((resolve) => {
-      this.queue.push(() => {
-        this.activeRequests++;
-        resolve();
-      });
-    });
-  }
-
-  private releaseSlot() {
-    this.activeRequests--;
-    const next = this.queue.shift();
-    if (next) next();
+    return result;
   }
 
   private async getFromCache(key: string): Promise<string | null> {
@@ -149,11 +115,8 @@ export class OllamaQueueService implements OnModuleDestroy {
   /** Estatísticas do serviço */
   getStats() {
     return {
-      activeRequests: this.activeRequests,
-      queuedRequests: this.queue.length,
       memoryCacheSize: this.memoryCache.size,
       redisAvailable: this.redisAvailable,
-      maxConcurrent: MAX_CONCURRENT,
     };
   }
 }

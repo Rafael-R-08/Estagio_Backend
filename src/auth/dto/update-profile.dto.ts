@@ -1,6 +1,7 @@
 import { IsOptional, IsString, IsEnum, IsArray } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
+import { ServiceLine } from '@prisma/client';
 
 export enum ExperienceLevel {
   JUNIOR = 'junior',
@@ -54,4 +55,9 @@ export class UpdateProfileDto {
   @Transform(({ value }) => value?.toUpperCase())
   @IsString()
   preferredLanguage?: string;
+
+  @ApiProperty({ required: false, enum: ServiceLine })
+  @IsOptional()
+  @IsEnum(ServiceLine)
+  serviceLine?: ServiceLine;
 }

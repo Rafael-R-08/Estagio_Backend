@@ -9,6 +9,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdateUserSettingsDto } from './dto/update-user-settings.dto';
+import { OnboardingDto } from './dto/onboarding.dto';
 
 interface AuthRequest extends Request {
   user: { userId: string; email: string; role: string };
@@ -52,6 +53,14 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Perfil atualizado' })
   updateMe(@Req() req: AuthRequest, @Body() dto: UpdateProfileDto) {
     return this.auth.updateProfile(req.user.userId, dto);
+  }
+
+  @Post('onboarding')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Concluir onboarding do utilizador' })
+  @ApiResponse({ status: 200, description: 'Utilizador atualizado' })
+  onboarding(@Req() req: AuthRequest, @Body() dto: OnboardingDto) {
+    return this.auth.onboarding(req.user.userId, dto.serviceLine);
   }
 
   @Public()

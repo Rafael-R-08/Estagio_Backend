@@ -4,10 +4,11 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { AdminService } from './admin.service';
 import { UpdateAdminUserDto } from './dto/update-admin-user.dto';
 import { UpdateAdminPlatformDto } from './dto/update-admin-platform.dto';
-import { Role } from '@prisma/client';
+import { Role, ServiceLine } from '@prisma/client';
 
 class UpdateRoleDto {
   role: Role;
+  managedLineId?: ServiceLine;
 }
 
 @ApiTags('admin')
@@ -40,7 +41,7 @@ export class AdminController {
   @Patch('users/:id/role')
   @ApiOperation({ summary: 'Atualizar role do utilizador' })
   updateUserRole(@Param('id') id: string, @Body() dto: UpdateRoleDto) {
-    return this.adminService.updateUser(id, { role: dto.role });
+    return this.adminService.updateUser(id, { role: dto.role, managedLineId: dto.managedLineId });
   }
 
   @Patch('users/:id/deactivate')

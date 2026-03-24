@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsBoolean, IsEnum, IsOptional, IsString } from 'class-validator';
-import { Role } from '@prisma/client';
+import { Role, ServiceLine } from '@prisma/client';
 
 export class UpdateAdminUserDto {
   @ApiProperty({ required: false })
@@ -17,4 +17,9 @@ export class UpdateAdminUserDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiProperty({ required: false, enum: ServiceLine })
+  @IsOptional()
+  @IsEnum(ServiceLine)
+  managedLineId?: ServiceLine;
 }

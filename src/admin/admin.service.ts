@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateAdminUserDto } from './dto/update-admin-user.dto';
 import { UpdateAdminPlatformDto } from './dto/update-admin-platform.dto';
@@ -20,6 +20,9 @@ export class AdminService {
         experienceLevel: true,
         jobTitle: true,
         department: true,
+        serviceLine: true,
+        onboardingDone: true,
+        managedLineId: true,
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -42,6 +45,9 @@ export class AdminService {
         department: true,
         location: true,
         preferredLanguage: true,
+        serviceLine: true,
+        onboardingDone: true,
+        managedLineId: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -51,10 +57,17 @@ export class AdminService {
   }
 
   async updateUser(id: string, dto: UpdateAdminUserDto) {
+    if (dto.role === 'SERVICE_LINE_MANAGER' && !dto.managedLineId) {
+      const user = await this.getUser(id);
+      if (user.role !== 'SERVICE_LINE_MANAGER' || !user.managedLineId) {
+         throw new BadRequestException('managedLineId is required when role is SERVICE_LINE_MANAGER');
+      }
+    }
+
     await this.getUser(id);
     return this.prisma.user.update({
       where: { id },
-      data: dto,
+      data: dto as any,
       select: {
         id: true,
         email: true,
@@ -62,6 +75,7 @@ export class AdminService {
         role: true,
         isActive: true,
         updatedAt: true,
+        managedLineId: true,
       },
     });
   }

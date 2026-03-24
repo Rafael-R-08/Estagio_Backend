@@ -1,95 +1,72 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
-import { firstValueFrom, timeout } from 'rxjs';
-import { OllamaQueueService } from '../cache/ollama-queue.service';
-
-const OLLAMA_TIMEOUT_MS = 300_000; // 5 minutos
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import OpenAI from 'openai';
+import { CacheService } from '../cache/cache.service';
 
 @Injectable()
-export class AiService implements OnModuleInit {
+export class AiService {
   private readonly logger = new Logger(AiService.name);
-  private readonly baseUrl = process.env.OLLAMA_HOST || 'http://localhost:11434';
+  private readonly client: OpenAI;
 
   constructor(
-    private readonly http: HttpService,
-    private readonly queue: OllamaQueueService,
-  ) {}
-
-  /**
-   * Warmup: pré-carrega o modelo para evitar cold start no primeiro pedido
-   */
-  async onModuleInit() {
-    this.logger.log('Warmup do Ollama: a carregar modelos...');
-    try {
-      await Promise.all([
-        this.warmupModel(process.env.LLM_MODEL || 'llama3'),
-        this.warmupModel(process.env.EMBED_MODEL || 'nomic-embed-text'),
-      ]);
-      this.logger.log('Warmup concluído.');
-    } catch {
-      this.logger.warn('Warmup falhou (Ollama pode não estar disponível ainda).');
-    }
+    private readonly configService: ConfigService,
+    private readonly cache: CacheService,
+  ) {
+    const githubConfig = this.configService.get('githubModels');
+    this.client = new OpenAI({
+      apiKey: githubConfig.token,
+      baseURL: githubConfig.endpoint,
+    });
   }
 
-  private async warmupModel(model: string): Promise<void> {
-    await firstValueFrom(
-      this.http
-        .post(`${this.baseUrl}/api/generate`, { model, prompt: '', stream: false })
-        .pipe(timeout(OLLAMA_TIMEOUT_MS)),
-    ).catch(() => null);
-  }
+  async generateText(prompt: string, model?: string): Promise<string> {
+    const defaultModel = this.configService.get('githubModels.model');
+    const selectedModel = model || defaultModel;
+    const cacheKey = `llm:${selectedModel}:${this.hash(prompt)}`;
 
-  async generateText(prompt: string, model = process.env.LLM_MODEL || 'gemma2:2b'): Promise<string> {
-    const cacheKey = `llm:${model}:${this.hash(prompt)}`;
-
-    return this.queue.enqueue(cacheKey, async () => {
-      const response = await firstValueFrom(
-        this.http
-          .post(`${this.baseUrl}/api/generate`, {
-            model,
-            prompt,
-            stream: false,
-            options: {
-              temperature: 0.3,   // respostas mais focadas e consistentes
-              num_predict: 400,   // limita output → resposta mais rápida
-              top_p: 0.9,
-            },
-          })
-          .pipe(timeout(OLLAMA_TIMEOUT_MS)),
-      );
-      return response.data.response as string;
+    return this.cache.getOrSet(cacheKey, async () => {
+      const response = await this.client.chat.completions.create({
+        model: selectedModel,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: 400,
+        top_p: 0.9,
+      });
+      return response.choices[0].message.content || '';
     });
   }
 
   async chat(
     messages: { role: 'user' | 'assistant'; content: string }[],
-    model = process.env.LLM_MODEL || 'gemma2:2b',
+    model?: string,
   ): Promise<string> {
-    const cacheKey = `chat:${model}:${this.hash(JSON.stringify(messages))}`;
+    const defaultModel = this.configService.get('githubModels.model');
+    const selectedModel = model || defaultModel;
+    const cacheKey = `chat:${selectedModel}:${this.hash(JSON.stringify(messages))}`;
 
-    return this.queue.enqueue(cacheKey, async () => {
-      const response = await firstValueFrom(
-        this.http
-          .post(`${this.baseUrl}/api/chat`, { model, messages, stream: false })
-          .pipe(timeout(OLLAMA_TIMEOUT_MS)),
-      );
-      return (response.data.message?.content || response.data) as string;
+    return this.cache.getOrSet(cacheKey, async () => {
+      const response = await this.client.chat.completions.create({
+        model: selectedModel,
+        messages: messages as any,
+      });
+      return response.choices[0].message.content || '';
     });
   }
 
   async embed(
     text: string,
-    model = process.env.EMBED_MODEL || 'nomic-embed-text',
+    model?: string,
   ): Promise<number[]> {
-    const cacheKey = `embed:${model}:${this.hash(text)}`;
+    const defaultModel = this.configService.get('githubModels.embedModel');
+    const selectedModel = model || defaultModel;
+    const cacheKey = `embed:${selectedModel}:${this.hash(text)}`;
 
-    return this.queue.enqueue(cacheKey, async () => {
-      const response = await firstValueFrom(
-        this.http
-          .post(`${this.baseUrl}/api/embed`, { model, input: text })
-          .pipe(timeout(OLLAMA_TIMEOUT_MS)),
-      );
-      return response.data.embeddings[0] as number[];
+    return this.cache.getOrSet(cacheKey, async () => {
+      const response = await this.client.embeddings.create({
+        model: selectedModel,
+        input: text,
+      });
+      return response.data[0].embedding;
     });
   }
 

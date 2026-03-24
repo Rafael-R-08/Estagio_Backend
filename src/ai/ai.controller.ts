@@ -9,21 +9,21 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EmbeddingService } from './embedding.service';
 import { AiService } from './ai.service';
 import { IndexChunkDto } from './dto/index-chunk.dto';
 import { SearchChunksDto } from './dto/search-chunks.dto';
 import { GenerateTextDto } from './dto/generate-text.dto';
 import { Public } from '../common/decorators/public.decorator';
-import { OllamaQueueService } from '../cache/ollama-queue.service';
 import { EmbedTextDto } from './dto/embed-text.dto';
 
 @Controller('ai')
 export class AiController {
   constructor(
-    private embeddingService: EmbeddingService,
-    private aiService: AiService,
-    private queueService: OllamaQueueService,
+    private readonly embeddingService: EmbeddingService,
+    private readonly aiService: AiService,
+    private readonly configService: ConfigService,
   ) {}
 
   /**
@@ -103,17 +103,13 @@ export class AiController {
       text: dto.text,
       embedding,
       dimensions: embedding.length,
-      model: dto.model || process.env.EMBED_MODEL || 'nomic-embed-text',
+      model: dto.model || this.configService.get('githubModels.embedModel'),
     };
   }
 
-  /**
-   * GET /api/ai/stats
-   * Estado da fila e cache do Ollama
-   */
   @Get('stats')
   @Public()
   getStats() {
-    return this.queueService.getStats();
+    return {};
   }
 }

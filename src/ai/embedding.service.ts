@@ -26,7 +26,7 @@ export class EmbeddingService {
     this.logger.log(`Indexando chunk de texto: ${content.substring(0, 50)}...`);
 
     try {
-      // Gera embedding usando Ollama
+      // Gera embedding usando GitHub Models
       const embedding = await this.aiService.embed(content);
       const embeddingStr = `[${embedding.join(',')}]`;
       const metadataJson = metadata ? JSON.stringify(metadata) : null;

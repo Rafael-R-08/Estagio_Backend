@@ -14,6 +14,15 @@ datasource db {
 enum Role {
   USER
   ADMIN
+  SERVICE_LINE_MANAGER
+}
+
+enum ServiceLine {
+  HYBRID_CLOUD
+  DATA
+  BUSINESS_APPLICATIONS
+  APPLICATION_OPERATIONS
+  SOURCING_TALENT_MANAGEMENT
 }
 
 enum ExperienceLevel {
@@ -55,6 +64,10 @@ model User {
   department        String?
   location          String? // 'escritorio' | 'remoto' | 'hibrido'
   preferredLanguage String? // 'PT' | 'EN' | 'ES' | 'FR'
+
+  serviceLine       ServiceLine?
+  onboardingDone    Boolean      @default(false)
+  managedLineId     ServiceLine?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

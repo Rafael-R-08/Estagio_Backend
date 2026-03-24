@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import 'dotenv/config';
 import * as bcrypt from 'bcrypt';
-import { PrismaClient, Role, TrainingStatus } from '@prisma/client';
+import { PrismaClient, Role, TrainingStatus, ServiceLine } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 
@@ -132,6 +132,8 @@ async function main() {
       department: 'IT',
       location: 'escritorio',
       preferredLanguage: 'PT',
+      serviceLine: ServiceLine.HYBRID_CLOUD,
+      onboardingDone: true,
     },
   });
 
@@ -146,58 +148,98 @@ async function main() {
   });
 
   // -------------------------------------------------------------
-  // 3) Criar USER normal (perfil rico para testar recomendações)
+  // 3) Create Service Line Managers and Users
   // -------------------------------------------------------------
-  const userEmail = 'user@example.com';
-  const userPass = 'password123';
-  const userHash = await bcrypt.hash(userPass, 10);
+  const serviceLines = [
+    ServiceLine.HYBRID_CLOUD,
+    ServiceLine.DATA,
+    ServiceLine.BUSINESS_APPLICATIONS,
+    ServiceLine.APPLICATION_OPERATIONS,
+    ServiceLine.SOURCING_TALENT_MANAGEMENT,
+  ];
 
-  const user = await prisma.user.upsert({
-    where: { email: userEmail },
-    update: {
-      experienceLevel: 'mid',
-      techStack: ['React', 'Node.js', 'TypeScript', 'PostgreSQL'],
-      interests: ['Cloud', 'DevOps', 'Backend', 'APIs'],
-      jobTitle: 'Full Stack Developer',
-      department: 'Engineering',
-      location: 'hibrido',
-      preferredLanguage: 'PT',
-    },
-    create: {
-      email: userEmail,
-      passwordHash: userHash,
-      name: 'User Example',
-      role: Role.USER,
-      experienceLevel: 'mid',
-      techStack: ['React', 'Node.js', 'TypeScript', 'PostgreSQL'],
-      interests: ['Cloud', 'DevOps', 'Backend', 'APIs'],
-      jobTitle: 'Full Stack Developer',
-      department: 'Engineering',
-      location: 'hibrido',
-      preferredLanguage: 'PT',
-    },
-  });
+  let mainSeedUser: any = null;
 
-  await prisma.userPreferences.upsert({
-    where: { userId: user.id },
-    update: {
-      enabledPlatforms: [udemy.id, msLearn.id, academiapt.id],
-      learningGoals: [
-        'Aprender Azure',
-        'Melhorar skills em DevOps',
-        'Aprofundar NestJS',
-      ],
-    },
-    create: {
-      userId: user.id,
-      enabledPlatforms: [udemy.id, msLearn.id, academiapt.id],
-      learningGoals: [
-        'Aprender Azure',
-        'Melhorar skills em DevOps',
-        'Aprofundar NestJS',
-      ],
-    },
-  });
+  for (const sl of serviceLines) {
+    // 1 Manager
+    const managerEmail = `manager.${sl.toLowerCase()}@softinsa.pt`;
+    const managerHash = await bcrypt.hash('Manager1234', 10);
+    
+    await prisma.user.upsert({
+      where: { email: managerEmail },
+      update: {},
+      create: {
+        email: managerEmail,
+        passwordHash: managerHash,
+        name: `Manager of ${sl}`,
+        role: Role.SERVICE_LINE_MANAGER,
+        serviceLine: sl,
+        managedLineId: sl,
+        onboardingDone: true,
+        experienceLevel: 'senior',
+        jobTitle: 'Service Line Manager',
+        department: 'Management',
+        location: 'hibrido',
+        preferredLanguage: 'EN',
+      }
+    });
+
+    // 2 Users
+    for (let i = 1; i <= 2; i++) {
+        const isMainUser = sl === ServiceLine.HYBRID_CLOUD && i === 1;
+        const userEmail = isMainUser ? 'user@example.com' : `user${i}.${sl.toLowerCase()}@softinsa.pt`;
+        const userHash = await bcrypt.hash('password123', 10);
+        
+        const createdUser = await prisma.user.upsert({
+            where: { email: userEmail },
+            update: {
+                serviceLine: sl,
+                onboardingDone: true,
+            },
+            create: {
+                email: userEmail,
+                passwordHash: userHash,
+                name: isMainUser ? 'User Example' : `User ${i} of ${sl}`,
+                role: Role.USER,
+                serviceLine: sl,
+                onboardingDone: true,
+                experienceLevel: 'mid',
+                techStack: ['React', 'Node.js', 'TypeScript', 'PostgreSQL'],
+                interests: ['Cloud', 'DevOps', 'Backend', 'APIs'],
+                jobTitle: isMainUser ? 'Full Stack Developer' : 'Consultant',
+                department: isMainUser ? 'Engineering' : 'Consulting',
+                location: 'hibrido',
+                preferredLanguage: 'PT',
+            }
+        });
+
+        if (isMainUser) {
+            mainSeedUser = createdUser;
+            await prisma.userPreferences.upsert({
+              where: { userId: createdUser.id },
+              update: {
+                enabledPlatforms: [udemy.id, msLearn.id, academiapt.id],
+                learningGoals: [
+                  'Aprender Azure',
+                  'Melhorar skills em DevOps',
+                  'Aprofundar NestJS',
+                ],
+              },
+              create: {
+                userId: createdUser.id,
+                enabledPlatforms: [udemy.id, msLearn.id, academiapt.id],
+                learningGoals: [
+                  'Aprender Azure',
+                  'Melhorar skills em DevOps',
+                  'Aprofundar NestJS',
+                ],
+              },
+            });
+        }
+    }
+  }
+
+  const user = mainSeedUser!;
 
   // -------------------------------------------------------------
   // 4) Criar vários Training Records para o user

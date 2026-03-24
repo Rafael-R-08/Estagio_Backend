@@ -163,7 +163,7 @@ export class CertificatesService {
     });
   }
 
-  // ---- Extração de metadados com Ollama & OCR ----
+  // ---- Extração de metadados com GitHub Models & OCR ----
   private async extractMetadataWithAI(
     courseTitle: string,
     filename: string,

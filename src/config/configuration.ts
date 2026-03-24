@@ -23,10 +23,11 @@ export default () => ({
     password: process.env.REDIS_PASSWORD || undefined,
   },
 
-  openai: {
-    apiKey: process.env.OPENAI_API_KEY || '',
-    model: process.env.OPENAI_MODEL || 'gpt-4-turbo',
-    embeddingModel: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small',
+  githubModels: {
+    token: process.env.GITHUB_TOKEN || '',
+    model: process.env.GITHUB_MODEL || 'gpt-4o',
+    embedModel: process.env.GITHUB_EMBED_MODEL || 'text-embedding-3-small',
+    endpoint: process.env.GITHUB_MODELS_ENDPOINT || 'https://models.inference.ai.azure.com',
   },
 
   azure: {

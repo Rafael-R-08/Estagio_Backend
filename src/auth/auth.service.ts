@@ -89,15 +89,29 @@ export class AuthService {
         department: true,
         location: true,
         preferredLanguage: true,
+        serviceLine: true,
+        onboardingDone: true,
+        managedLineId: true,
       },
     });
     if (!user) throw new UnauthorizedException('User not found');
     return user;
   }
 
+  async onboarding(userId: string, serviceLine: string) {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        serviceLine: serviceLine as any,
+        onboardingDone: true,
+      },
+    });
+    return this.getMe(userId);
+  }
+
   async updateProfile(
     userId: string,
-    dto: { name?: string; experienceLevel?: string; techStack?: string[]; interests?: string[]; jobTitle?: string; department?: string; location?: string; preferredLanguage?: string },
+    dto: { name?: string; experienceLevel?: string; techStack?: string[]; interests?: string[]; jobTitle?: string; department?: string; location?: string; preferredLanguage?: string; serviceLine?: string },
   ) {
     const data: Record<string, unknown> = {};
     if (dto.name !== undefined) data.name = dto.name;
@@ -108,6 +122,7 @@ export class AuthService {
     if (dto.department !== undefined) data.department = dto.department;
     if (dto.location !== undefined) data.location = dto.location;
     if (dto.preferredLanguage !== undefined) data.preferredLanguage = dto.preferredLanguage;
+    if (dto.serviceLine !== undefined) data.serviceLine = dto.serviceLine;
 
     const user = await this.prisma.user.update({
       where: { id: userId },
@@ -124,6 +139,9 @@ export class AuthService {
         department: true,
         location: true,
         preferredLanguage: true,
+        serviceLine: true,
+        onboardingDone: true,
+        managedLineId: true,
       },
     });
     return user;

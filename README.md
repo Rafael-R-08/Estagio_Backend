@@ -28,7 +28,7 @@ API REST do projeto **LearningHub**, desenvolvida com NestJS. Oferece autentica�
 | ORM | Prisma 7 |
 | Cache | Redis 7 |
 | Autenticação | JWT (access + refresh tokens) via Passport |
-| IA | OpenAI (GPT-4 Turbo, text-embedding-3-small) + Ollama (local) |
+| IA | GitHub Models (GPT-4o, text-embedding-3-small) |
 | Armazenamento | Azure Blob Storage |
 | Documentação API | Swagger / OpenAPI (disponível em `/docs`) |
 | CI/CD | Bitbucket Pipelines |
@@ -50,7 +50,7 @@ src/
 ├── analysis/        # Análise de perfis e lacunas de competências
 ├── search/          # Pesquisa combinada (texto + semântica)
 ├── scraper/         # Recolha automática de formações externas
-├── cache/           # Queue e cache para pedidos Ollama
+├── cache/           # Cache para pedidos de IA (Redis/Memória)
 ├── prisma/          # Módulo e serviço Prisma
 ├── config/          # Configuração centralizada via variáveis de ambiente
 └── common/          # Guards globais, decoradores e utilitários partilhados

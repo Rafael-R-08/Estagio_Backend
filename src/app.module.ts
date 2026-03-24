@@ -13,9 +13,10 @@ import { AnalysisModule } from './analysis/analysis.module';
 import { TrainingsModule } from './trainings/trainings.module';
 import { CertificatesModule } from './certificates/certificates.module';
 import { SearchModule } from './search/search.module';
-import { OllamaCacheModule } from './cache/ollama-cache.module';
+import { CacheModule } from './cache/cache.module';
 import { AdminModule } from './admin/admin.module';
 import { SoftinsaLearningModule } from './softinsa-learning/softinsa-learning.module';
+import { SlManagerModule } from './sl-manager/sl-manager.module';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -25,12 +26,13 @@ import { RolesGlobalGuard } from './common/guards/roles-global.guard';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import configuration from './config/configuration';
+import { validate } from './config/env.validation';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
+    ConfigModule.forRoot({ isGlobal: true, load: [configuration], validate }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 30 }]), // 30 pedidos/min por IP
-    OllamaCacheModule,
+    CacheModule,
     PrismaModule,
     AuthModule,
     UserModule,
@@ -44,6 +46,7 @@ import configuration from './config/configuration';
     SearchModule,
     AdminModule,
     SoftinsaLearningModule,
+    SlManagerModule,
   ],
 
   controllers: [AppController],

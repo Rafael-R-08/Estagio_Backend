@@ -46,6 +46,13 @@ enum CourseLevel {
   advanced
 }
 
+enum ChunkSource {
+  EXTERNAL_COURSE
+  SOFTINSA_LEARNING
+  COURSE_ANALYSIS
+  RAG_KNOWLEDGE
+}
+
 // ---- Core Models ----
 
 model User {
@@ -65,9 +72,9 @@ model User {
   location          String? // 'escritorio' | 'remoto' | 'hibrido'
   preferredLanguage String? // 'PT' | 'EN' | 'ES' | 'FR'
 
-  serviceLine       ServiceLine?
-  onboardingDone    Boolean      @default(false)
-  managedLineId     ServiceLine?
+  serviceLine    ServiceLine?
+  onboardingDone Boolean      @default(false)
+  managedLineId  ServiceLine?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -78,6 +85,7 @@ model User {
   certificates Certificate[]
   preferences  UserPreferences?
   settings     UserSettings?
+  recommendationFeedbacks RecommendationFeedback[]
 }
 
 // Plataformas
@@ -175,7 +183,7 @@ model Course {
   level         CourseLevel?
   isFree        Boolean?
   tags          String[]
-  embedding     Unsupported("vector")? // pgvector type for semantic search
+  embedding     Unsupported("vector(1536)")? // pgvector type for semantic search
 
   lastUpdated DateTime @default(now())
 
@@ -258,12 +266,30 @@ model UserSettings {
 
 // Chunks de texto para testes de embedding e pesquisa semântica
 model TextChunk {
-  id        String                 @id @default(uuid())
-  content   String                 @db.Text
-  embedding Unsupported("vector")? // pgvector type for semantic search
-  metadata  Json? // metadados opcionais (fonte, tags, etc)
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
+  id            String                      @id @default(uuid())
+  content       String
+  embedding     Unsupported("vector(1536)")
+  source        ChunkSource                 @default(RAG_KNOWLEDGE)
+  sourceId      String?
+  metadata      Json?
+  lastUpdatedAt DateTime?
+  createdAt     DateTime                    @default(now())
 
-  @@index([createdAt])
+  @@index([source])
+  @@index([sourceId])
+  @@map("text_chunks")
+}
+
+model RecommendationFeedback {
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recommendationText String   @db.Text
+  rating             Int?
+  courseClicked      Boolean  @default(false)
+  courseEnrolled     Boolean  @default(false)
+  metadata           Json?
+  createdAt          DateTime @default(now())
+
+  @@index([userId])
 }

@@ -30,8 +30,9 @@ export default () => ({
     endpoint: process.env.GITHUB_MODELS_ENDPOINT || 'https://models.inference.ai.azure.com',
   },
 
-  azure: {
-    storageConnectionString: process.env.AZURE_STORAGE_CONNECTION_STRING || '',
-    containerName: process.env.AZURE_CONTAINER_NAME || 'certificates',
+  supabase: {
+    url: process.env.SUPABASE_URL || '',
+    key: process.env.SUPABASE_SERVICE_KEY || '',
+    bucket: process.env.SUPABASE_BUCKET || 'certificates',
   },
 });

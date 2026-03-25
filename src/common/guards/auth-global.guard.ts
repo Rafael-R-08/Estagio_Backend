@@ -15,7 +15,16 @@ export class GlobalAuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (isPublic) return true;
+
+    if (isPublic) {
+      try {
+        await this.jwtGuard.canActivate(context);
+      } catch (e) {
+        // Ignorar erro se for público (utilizador não autenticado)
+      }
+      return true;
+    }
+
     return (await this.jwtGuard.canActivate(context)) as boolean;
   }
 }

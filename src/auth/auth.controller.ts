@@ -1,5 +1,6 @@
 // src/auth/auth.controller.ts
 import { Body, Controller, Get, Post, Patch, Query, HttpCode, Req } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
@@ -32,6 +33,7 @@ export class AuthController {
   @Public()
   @HttpCode(200)
   @Post('login')
+  @Throttle({ default: { limit: 15, ttl: 60000 } })
   @ApiOperation({ summary: 'Login de utilizador' })
   @ApiResponse({ status: 200, description: 'Login bem-sucedido' })
   @ApiResponse({ status: 401, description: 'Credenciais inválidas' })

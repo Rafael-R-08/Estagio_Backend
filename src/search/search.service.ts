@@ -1,7 +1,8 @@
+// src/search/search.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../prisma/prisma.service';
-import { AiService } from '../ai/ai.service';
+import { AiService } from '../ai/services/ai.service';
 import { SearchQueryDto } from './dto/search-query.dto';
 import { CourseResult, IPlatformAdapter } from './interfaces/platform-adapter.interface';
 import { MicrosoftLearnAdapter } from './adapters/microsoft-learn.adapter';
@@ -10,6 +11,9 @@ import { UdemyAdapter } from './adapters/udemy.adapter';
 import { TrailheadAdapter } from './adapters/trailhead.adapter';
 import { IbmSkillsBuildAdapter } from './adapters/ibm-skillsbuild.adapter';
 import { SoftinsaLearningAdapter } from './adapters/softinsa-learning.adapter';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { CourseBatchCreatedEvent, CourseCreatedEvent } from '../ai/events/course-indexing.event';
+import { ChunkSource } from '@prisma/client';
 
 export interface SearchResponse {
   query: string;
@@ -27,8 +31,12 @@ export class SearchService {
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
     private readonly http: HttpService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
+  /**
+   * Obtém plataformas disponíveis para pesquisa
+   */
   async getAvailablePlatforms() {
     return this.prisma.learningPlatform.findMany({
       where: { enabled: true, searchEnabled: true },
@@ -37,17 +45,17 @@ export class SearchService {
     });
   }
 
+  /**
+   * Pesquisa principal unificando múltiplas plataformas e ranking semântico
+   */
   async search(dto: SearchQueryDto, userId?: string): Promise<SearchResponse> {
     const { q, limit = 10, platforms: platformNames, isFree, minRating } = dto;
 
-    // 1. Carregar plataformas activas da DB
     const platforms = await this.prisma.learningPlatform.findMany({
       where: {
         enabled: true,
         searchEnabled: true,
-        ...(platformNames?.length
-          ? { name: { in: platformNames } }
-          : {}),
+        ...(platformNames?.length ? { name: { in: platformNames } } : {}),
       },
     });
 
@@ -55,95 +63,112 @@ export class SearchService {
       return { query: q, total: 0, results: [], platforms: [], semanticRanking: false };
     }
 
-    // 2. Sempre pesquisa em todas as plataformas ativas, a não ser que haja um filtro explícito na query.
-    // (Anteriormente, usava-se o userPreferences.enabledPlatforms como fallback, o que escondia novas
-    // plataformas acabadas de ser adicionadas pelo admin até o utilizador as ativar manualmente).
-    let activePlatformIds = platforms.map((p) => p.id);
+    const platformIds = platforms.map((p) => p.id);
 
-    const activePlatforms = platforms.filter((p) =>
-      activePlatformIds.includes(p.id),
-    );
+    // 1. Tentar cache da DB
+    let results = await this.searchFromCache(q, platformIds, limit * 2, isFree, minRating);
+    
+    if (results.length === 0) {
+      // 2. Cache miss -> Busca externa em paralelo
+      const adapters = platforms.map((p) => this.createAdapter(p)).filter(Boolean) as IPlatformAdapter[];
+      const rawResults = await Promise.allSettled(
+        adapters.map((adapter) => adapter.search(q, limit, { isFree, minRating })),
+      );
 
-    // 3. Tentar cache da DB primeiro
-    const cached = await this.searchFromCache(q, activePlatformIds, limit, isFree, minRating);
-    if (cached.length > 0) {
-      this.logger.log(`[Search] "${q}" → cache DB (${cached.length} resultados)`);
-      let rankedCached = cached;
-      try {
-        rankedCached = await this.rankSemantically(q, cached);
-      } catch { /* usa ordem original */ }
-      return {
-        query: q,
-        total: rankedCached.length,
-        results: rankedCached,
-        platforms: activePlatforms.map((p) => p.name),
-        semanticRanking: true,
-      };
+      const allCourses: CourseResult[] = rawResults.flatMap((r) =>
+        r.status === 'fulfilled' ? r.value : [],
+      );
+
+      // 3. Persistir e emitir evento de indexação
+      const { newCourses } = await this.cacheResults(allCourses, platforms);
+      
+      if (newCourses.length > 0) {
+        const events = newCourses.map(c => new CourseCreatedEvent(
+          c.id, c.title, c.description, c.platform.name, c.tags?.[0], c.level || undefined, ChunkSource.EXTERNAL_COURSE
+        ));
+        this.eventEmitter.emit('course.batch_created', new CourseBatchCreatedEvent(events));
+      }
+
+      results = allCourses;
     }
 
-    // 4. Cache miss → ir às plataformas externas
-    const adapters = activePlatforms
-      .map((p) => this.createAdapter(p))
-      .filter(Boolean) as IPlatformAdapter[];
-
-    const rawResults = await Promise.allSettled(
-      adapters.map((adapter) => adapter.search(q, limit, { isFree, minRating })),
-    );
-
-    const allCourses: CourseResult[] = rawResults.flatMap((r) =>
-      r.status === 'fulfilled' ? r.value : [],
-    );
-
-    this.logger.log(
-      `[Search] "${q}" → ${allCourses.length} resultados de ${adapters.length} plataformas`,
-    );
-
-    // Aplicar filtro de segurança sobre o array (caso adapters não suportem filtragem nativa)
-    const filteredCourses = allCourses.filter((c) => {
-      if (isFree !== undefined && c.isFree !== isFree) return false;
-      if (minRating !== undefined && (c.rating ?? 0) < minRating) return false;
-      return true;
-    });
-
-    // 5. Ranking semântico com embeddings (assíncrono, best-effort)
-    let rankedCourses = filteredCourses;
-    let semanticRanking = false;
-
+    // 4. Ranking Semântico com cache de embeddings
+    let rankedResults = results;
+    let semanticRankingStatus = false;
     try {
-      rankedCourses = await this.rankSemantically(q, allCourses);
-      semanticRanking = true;
-    } catch (e: unknown) {
-      this.logger.warn(`[Search] Ranking semântico falhou: ${String(e)}. A usar ordem original.`);
+      rankedResults = await this.semanticRank(q, results);
+      semanticRankingStatus = true;
+    } catch (error) {
+      this.logger.warn(`Ranking semântico falhou: ${error.message}`);
     }
-
-    // 6. Guardar resultados na cache (Course table) — fire-and-forget
-    this.cacheResults(rankedCourses, activePlatforms).catch((e: unknown) =>
-      this.logger.warn(`[Search] Cache write ignorada: ${String(e)}`),
-    );
 
     return {
       query: q,
-      total: rankedCourses.length,
-      results: rankedCourses.slice(0, limit * activePlatforms.length),
-      platforms: activePlatforms.map((p) => p.name),
-      semanticRanking,
+      total: rankedResults.length,
+      results: rankedResults.slice(0, limit),
+      platforms: platforms.map((p) => p.name),
+      semanticRanking: semanticRankingStatus,
     };
   }
 
-  // ------------------------------------------------------------------
-  // Pesquisa na cache da DB
-  // ------------------------------------------------------------------
-  private async searchFromCache(
-    query: string,
-    platformIds: string[],
-    limit: number,
-    isFree?: boolean,
-    minRating?: number,
-  ): Promise<CourseResult[]> {
+  /**
+   * Ranking semântico com cache de embeddings por curso (24h)
+   */
+  async semanticRank(query: string, courses: CourseResult[]): Promise<CourseResult[]> {
+    if (courses.length === 0) return courses;
+
+    try {
+      const queryEmbedding = await this.aiService.embed(query);
+
+      const courseEmbeddings = await Promise.all(
+        courses.map(async (c) => {
+          const cacheKey = `course_embedding:${c.externalId}`;
+          const text = `${c.title}. ${c.description?.slice(0, 300) || ''}`;
+          return this.getOrCreateEmbedding(cacheKey, text, 86400);
+        })
+      );
+
+      return courses
+        .map((course, i) => {
+          const emb = courseEmbeddings[i];
+          const score = emb ? this.cosineSimilarity(queryEmbedding, emb) : 0;
+          return { ...course, similarityScore: score };
+        })
+        .sort((a, b) => (b.similarityScore ?? 0) - (a.similarityScore ?? 0));
+    } catch (error) {
+      this.logger.error(`Erro no semanticRank: ${error.message}`);
+      return courses;
+    }
+  }
+
+  private async getOrCreateEmbedding(cacheKey: string, text: string, ttl: number): Promise<number[] | null> {
+    try {
+      const cached = await this.aiService.cache.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+
+      const embedding = await this.aiService.embed(text);
+      await this.aiService.cache.set(cacheKey, JSON.stringify(embedding), ttl);
+      return embedding;
+    } catch {
+      return null;
+    }
+  }
+
+  private cosineSimilarity(a: number[], b: number[]): number {
+    if (!a || !b || a.length !== b.length) return 0;
+    let dot = 0, normA = 0, normB = 0;
+    for (let i = 0; i < a.length; i++) {
+        dot += a[i] * b[i];
+        normA += a[i] * a[i];
+        normB += b[i] * b[i];
+    }
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB) || 1);
+  }
+
+  private async searchFromCache(query: string, platformIds: string[], limit: number, isFree?: boolean, minRating?: number): Promise<CourseResult[]> {
     const terms = query.split(/\s+/).filter(Boolean);
     if (terms.length === 0) return [];
 
-    // OR entre todos os termos em título e descrição
     const orConditions = terms.flatMap((t) => [
       { title: { contains: t, mode: 'insensitive' as const } },
       { description: { contains: t, mode: 'insensitive' as const } },
@@ -152,26 +177,26 @@ export class SearchService {
     const courses = await this.prisma.course.findMany({
       where: {
         platformId: { in: platformIds },
-        ...(isFree !== undefined ? { isFree } : {}),
-        ...(minRating !== undefined ? { rating: { gte: minRating } } : {}),
-        OR: orConditions,
+        AND: [
+            { OR: orConditions },
+            ...(isFree !== undefined ? [{ isFree }] : []),
+            ...(minRating !== undefined ? [{ rating: { gte: minRating } }] : []),
+        ]
       },
-      include: {
-        platform: { select: { name: true } },
-      },
-      orderBy: { lastUpdated: 'desc' },
-      take: limit * platformIds.length,
+      include: { platform: { select: { name: true } } },
+      take: limit,
+      orderBy: { lastUpdated: 'desc' }
     });
 
-    return courses.map((c) => ({
+    return courses.map(c => ({
       externalId: c.externalId,
       title: c.title,
-      description: c.description ?? '',
+      description: c.description || '',
       url: c.url,
-      instructor: c.instructor ?? undefined,
-      rating: c.rating ?? undefined,
-      durationHours: c.durationHours ?? undefined,
-      level: c.level as CourseResult['level'] | undefined,
+      instructor: c.instructor || undefined,
+      rating: c.rating || undefined,
+      durationHours: c.durationHours || undefined,
+      level: c.level as any,
       isFree: c.isFree === null ? undefined : c.isFree,
       tags: c.tags,
       platformId: c.platformId,
@@ -179,55 +204,9 @@ export class SearchService {
     }));
   }
 
-  // ------------------------------------------------------------------
-  // Ranking semântico — cosine similarity entre query embedding e
-  // embeddings das descrições dos cursos
-  // ------------------------------------------------------------------
-  private async rankSemantically(
-    query: string,
-    courses: CourseResult[],
-  ): Promise<CourseResult[]> {
-    if (courses.length === 0) return courses;
-
-    const queryEmbedding = await this.aiService.embed(query);
-
-    // Gerar embeddings dos cursos (apenas título + descrição curta)
-    const courseEmbeddings = await Promise.all(
-      courses.map((c) =>
-        this.aiService
-          .embed(`${c.title}. ${c.description.slice(0, 200)}`)
-          .catch(() => null),
-      ),
-    );
-
-    return courses
-      .map((course, i) => {
-        const emb = courseEmbeddings[i];
-        const score = emb ? this.cosineSimilarity(queryEmbedding, emb) : 0;
-        return { ...course, similarityScore: score };
-      })
-      .sort((a, b) => (b.similarityScore ?? 0) - (a.similarityScore ?? 0));
-  }
-
-  private cosineSimilarity(a: number[], b: number[]): number {
-    if (a.length !== b.length) return 0;
-    let dot = 0, normA = 0, normB = 0;
-    for (let i = 0; i < a.length; i++) {
-      dot += a[i] * b[i];
-      normA += a[i] * a[i];
-      normB += b[i] * b[i];
-    }
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB) || 1);
-  }
-
-  // ------------------------------------------------------------------
-  // Cache de cursos na DB (Course table)
-  // ------------------------------------------------------------------
-  private async cacheResults(
-    courses: CourseResult[],
-    platforms: Array<{ id: string; name: string }>,
-  ): Promise<void> {
-    const platformMap = new Map(platforms.map((p) => [p.name, p.id]));
+  private async cacheResults(courses: CourseResult[], platforms: any[]): Promise<{ newCourses: any[] }> {
+    const platformMap = new Map(platforms.map(p => [p.name, p.id]));
+    const newCourses: any[] = [];
 
     for (const course of courses) {
       const platformId = course.platformId || platformMap.get(course.platformName);
@@ -235,122 +214,82 @@ export class SearchService {
 
       const existing = await this.prisma.course.findFirst({
         where: { platformId, externalId: course.externalId },
-        select: { id: true },
       });
 
       if (existing) {
         await this.prisma.course.update({
           where: { id: existing.id },
-          data: {
-            title: course.title,
-            description: course.description,
-            url: course.url,
-            instructor: course.instructor,
-            rating: course.rating,
-            durationHours: course.durationHours,
-            level: course.level,
-            isFree: course.isFree,
-            tags: course.tags,
-            lastUpdated: new Date(),
-          },
+          data: { title: course.title, description: course.description, rating: course.rating, lastUpdated: new Date() },
         });
       } else {
-        await this.prisma.course.create({
+        const created = await this.prisma.course.create({
           data: {
             platformId,
             externalId: course.externalId,
             title: course.title,
             description: course.description,
             url: course.url,
-            instructor: course.instructor,
-            rating: course.rating,
-            durationHours: course.durationHours,
-            level: course.level,
             isFree: course.isFree,
             tags: course.tags,
           },
+          include: { platform: true }
         });
+        newCourses.push(created);
       }
     }
+    return { newCourses };
   }
-
-  // ------------------------------------------------------------------
-  // Course detail by externalId (from Course cache table)
-  // ------------------------------------------------------------------
 
   async getCourseByExternalId(externalId: string) {
-    const course = await this.prisma.course.findFirst({
-      where: { externalId },
-      include: { platform: { select: { id: true, name: true } } },
+    return this.prisma.course.findFirst({
+        where: { externalId },
+        include: { platform: { select: { id: true, name: true } } },
     });
-    return course ?? null;
   }
 
-  async getRelatedCourses(externalId: string, limit = 4): Promise<CourseResult[]> {
+  async getRelatedCourses(externalId: string, limit = 4) {
     const course = await this.prisma.course.findFirst({
-      where: { externalId },
-      select: { tags: true, platformId: true, id: true },
+        where: { externalId },
+        select: { tags: true, platformId: true, id: true },
     });
     if (!course || course.tags.length === 0) return [];
 
     const related = await this.prisma.course.findMany({
-      where: {
-        id: { not: course.id },
-        platformId: course.platformId,
-        tags: { hasSome: course.tags },
-      },
-      include: { platform: { select: { id: true, name: true } } },
-      take: limit,
+        where: {
+            id: { not: course.id },
+            platformId: course.platformId,
+            tags: { hasSome: course.tags },
+        },
+        include: { platform: { select: { id: true, name: true } } },
+        take: limit,
     });
 
-    return related.map((c) => ({
-      externalId: c.externalId,
-      title: c.title,
-      description: c.description ?? '',
-      url: c.url,
-      instructor: c.instructor ?? undefined,
-      rating: c.rating ?? undefined,
-      durationHours: c.durationHours ?? undefined,
-      level: c.level ?? undefined,
-      isFree: c.isFree === null ? undefined : c.isFree,
-      tags: c.tags,
-      platformId: c.platformId,
-      platformName: c.platform.name,
-    }));
+    return related.map(c => ({
+        externalId: c.externalId,
+        title: c.title,
+        description: c.description || '',
+        url: c.url,
+        instructor: c.instructor || undefined,
+        rating: c.rating || undefined,
+        durationHours: c.durationHours || undefined,
+        level: c.level ?? undefined,
+        isFree: c.isFree === null ? undefined : c.isFree,
+        tags: c.tags,
+        platformId: c.platformId,
+        platformName: c.platform.name,
+    })) as CourseResult[];
   }
 
-  // ------------------------------------------------------------------
-  // Factory de adapters por nome de plataforma
-  // ------------------------------------------------------------------
-  private createAdapter(platform: {
-    id: string;
-    name: string;
-    apiEndpoint: string | null;
-    config: any;
-  }): IPlatformAdapter | null {
-    const cfg = {
-      id: platform.id,
-      name: platform.name,
-      apiEndpoint: platform.apiEndpoint,
-      config: platform.config as Record<string, any>,
-    };
-
+  private createAdapter(platform: any): IPlatformAdapter | null {
+    const cfg = { id: platform.id, name: platform.name, apiEndpoint: platform.apiEndpoint, config: platform.config };
     switch (platform.name) {
-      case 'Microsoft Learn':
-        return new MicrosoftLearnAdapter(this.http, cfg);
-      case 'Academia Portugal Digital':
-        return new AcademiaPortugalDigitalAdapter(this.http, cfg);
-      case 'Udemy':
-        return new UdemyAdapter(this.http, cfg);
-      case 'Trailhead':
-        return new TrailheadAdapter(this.http, cfg);
-      case 'IBM SkillsBuild':
-        return new IbmSkillsBuildAdapter(this.http, cfg);
-      case 'Softinsa Everyday Learning':
-        return new SoftinsaLearningAdapter(this.prisma, cfg);
-      default:
-        this.logger.warn(`[Search] Sem adapter para plataforma: ${platform.name}`);
-        return null;
+      case 'Microsoft Learn': return new MicrosoftLearnAdapter(this.http, cfg);
+      case 'Academia Portugal Digital': return new AcademiaPortugalDigitalAdapter(this.http, cfg);
+      case 'Udemy': return new UdemyAdapter(this.http, cfg);
+      case 'Trailhead': return new TrailheadAdapter(this.http, cfg);
+      case 'IBM SkillsBuild': return new IbmSkillsBuildAdapter(this.http, cfg);
+      case 'Softinsa Everyday Learning': return new SoftinsaLearningAdapter(this.prisma, cfg as any);
+      default: return null;
     }
   }
 }

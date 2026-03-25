@@ -1,8 +1,10 @@
-import { Controller, Post, Body, Get, Request, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, Get, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { IsOptional, IsString } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { RecommendationService } from './recommendation.service';
+import { RecommendationService } from '../ai/services/recommendation.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 class RecommendQueryDto {
   @ApiPropertyOptional({
@@ -16,6 +18,7 @@ class RecommendQueryDto {
 
 @ApiTags('recommendations')
 @ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('recommendations')
 export class RecommendationController {
   constructor(private recommendationService: RecommendationService) {}
@@ -29,19 +32,19 @@ export class RecommendationController {
   @ApiOperation({
     summary: 'Recomendações personalizadas baseadas no perfil e histórico do utilizador autenticado',
   })
-  async recommendForMe(@Request() req, @Body() dto: RecommendQueryDto) {
-    return this.recommendationService.recommendForUser(req.user.userId, dto.query);
+  async recommendForMe(@CurrentUser() userId: string, @Body() dto: RecommendQueryDto) {
+    return this.recommendationService.recommendForUser(userId);
   }
 
   /**
    * GET /recommendations/me
-   * Recomendações automáticas sem query (usa perfil do utilizador)
+   * Recomendações automáticas baseadas no perfil (sem necessidade de query)
    */
   @Get('me')
   @ApiOperation({
     summary: 'Recomendações automáticas baseadas no perfil (sem necessidade de query)',
   })
-  async autoRecommend(@Request() req) {
-    return this.recommendationService.recommendForUser(req.user.userId);
+  async autoRecommend(@CurrentUser() userId: string) {
+    return this.recommendationService.recommendForUser(userId);
   }
 }

@@ -1,6 +1,6 @@
 import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { AnalysisService } from './analysis.service';
+import { AnalysisService } from '../ai/services/analysis.service';
 import { AnalyzeCourseDto, AnalyzeBatchDto } from './dto/analyze-course.dto';
 import { Public } from '../common/decorators/public.decorator';
 

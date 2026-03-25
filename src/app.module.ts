@@ -7,9 +7,6 @@ import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { ScraperModule } from './scraper/scraper.module';
 import { AiModule } from './ai/ai.module';
-import { RagModule } from './rag/rag.module';
-import { RecommendationModule } from './recommendations/recommendation.module';
-import { AnalysisModule } from './analysis/analysis.module';
 import { TrainingsModule } from './trainings/trainings.module';
 import { CertificatesModule } from './certificates/certificates.module';
 import { SearchModule } from './search/search.module';
@@ -31,16 +28,15 @@ import { validate } from './config/env.validation';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [configuration], validate }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 30 }]), // 30 pedidos/min por IP
+    ThrottlerModule.forRoot([
+      { name: 'default', ttl: 60000, limit: 100 },
+    ]),
     CacheModule,
     PrismaModule,
     AuthModule,
     UserModule,
     ScraperModule,
     AiModule,
-    RagModule,
-    RecommendationModule,
-    AnalysisModule,
     TrainingsModule,
     CertificatesModule,
     SearchModule,

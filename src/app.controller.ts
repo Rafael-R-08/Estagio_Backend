@@ -1,6 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { AppService } from './app.service';
-import { AiService } from './ai/ai.service';
+import { AiService } from './ai/services/ai.service';
 
 import { Public } from './common/decorators/public.decorator';
 

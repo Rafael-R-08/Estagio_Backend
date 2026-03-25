@@ -1,8 +1,6 @@
+// src/cache/cache.service.ts
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { createClient, RedisClientType } from 'redis';
-
-const CACHE_TTL_SECONDS = 60 * 60; // 1 hora para respostas LLM
-const EMBED_TTL_SECONDS = 60 * 60 * 24; // 24 horas para embeddings (mais estáveis)
 
 @Injectable()
 export class CacheService implements OnModuleDestroy {
@@ -49,28 +47,9 @@ export class CacheService implements OnModuleDestroy {
   }
 
   /**
-   * Encapsula uma chamada com cache (Redis ou memória)
+   * Obtém um valor do cache
    */
-  async getOrSet<T>(cacheKey: string, fn: () => Promise<T>): Promise<T> {
-    // 1. Verificar cache
-    const cached = await this.getFromCache(cacheKey);
-    if (cached !== null) {
-      this.logger.debug(`Cache hit: ${cacheKey}`);
-      return JSON.parse(cached) as T;
-    }
-
-    // 2. Executar a chamada
-    const result = await fn();
-
-    // 3. Guardar no cache
-    const ttl = cacheKey.startsWith('embed:') ? EMBED_TTL_SECONDS : CACHE_TTL_SECONDS;
-    await this.setInCache(cacheKey, JSON.stringify(result), ttl);
-
-    return result;
-  }
-
-  private async getFromCache(key: string): Promise<string | null> {
-    // Tenta Redis primeiro
+  async get(key: string): Promise<string | null> {
     if (this.redis && this.redisAvailable) {
       try {
         return await this.redis.get(key);
@@ -78,17 +57,22 @@ export class CacheService implements OnModuleDestroy {
         this.redisAvailable = false;
       }
     }
-    // Fallback: memória
+
     const entry = this.memoryCache.get(key);
     if (entry && entry.expiresAt > Date.now()) {
       return entry.value;
     }
-    this.memoryCache.delete(key);
+    
+    if (entry) {
+      this.memoryCache.delete(key);
+    }
     return null;
   }
 
-  private async setInCache(key: string, value: string, ttlSeconds: number): Promise<void> {
-    // Tenta Redis primeiro
+  /**
+   * Define um valor no cache com TTL em segundos
+   */
+  async set(key: string, value: string, ttlSeconds: number): Promise<void> {
     if (this.redis && this.redisAvailable) {
       try {
         await this.redis.set(key, value, { EX: ttlSeconds });
@@ -97,22 +81,76 @@ export class CacheService implements OnModuleDestroy {
         this.redisAvailable = false;
       }
     }
-    // Fallback: memória
+
     this.memoryCache.set(key, {
       value,
       expiresAt: Date.now() + ttlSeconds * 1000,
     });
   }
 
-  /** Invalida uma chave de cache */
-  async invalidate(key: string): Promise<void> {
-    this.memoryCache.delete(key);
+  /**
+   * Remove uma chave específica
+   */
+  async del(key: string): Promise<void> {
     if (this.redis && this.redisAvailable) {
-      await this.redis.del(key).catch(() => null);
+      try {
+        await this.redis.del(key);
+      } catch {
+        this.redisAvailable = false;
+      }
+    }
+    this.memoryCache.delete(key);
+  }
+
+  /**
+   * Invalida chaves que correspondam a um padrão (ex: "ai:user123:*")
+   */
+  async invalidatePattern(pattern: string): Promise<void> {
+    this.logger.log(`Invalidando cache com padrão: ${pattern}`);
+    
+    // Redis: usa SCAN ou KEYS (KEYS é bloqueante, mas para este caso pequeno é aceitável)
+    if (this.redis && this.redisAvailable) {
+      try {
+        const keys = await this.redis.keys(pattern);
+        if (keys.length > 0) {
+          await this.redis.del(keys);
+          this.logger.log(`Redis: Removidas ${keys.length} chaves.`);
+        }
+      } catch (error) {
+        this.logger.error(`Erro ao invalidar padrão no Redis: ${error.message}`);
+      }
+    }
+
+    // Memória: itera sobre as chaves
+    const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+    let memoryCount = 0;
+    for (const key of this.memoryCache.keys()) {
+      if (regex.test(key)) {
+        this.memoryCache.delete(key);
+        memoryCount++;
+      }
+    }
+    if (memoryCount > 0) {
+      this.logger.log(`Memória: Removidas ${memoryCount} chaves.`);
     }
   }
 
-  /** Estatísticas do serviço */
+  /**
+   * Legacy: getOrSet para compatibilidade (OPCIONAL se quiseres migrar tudo, mas mantemos por segurança)
+   */
+  async getOrSet<T>(cacheKey: string, fn: () => Promise<T>): Promise<T> {
+    const cached = await this.get(cacheKey);
+    if (cached !== null) {
+      return JSON.parse(cached) as T;
+    }
+
+    const result = await fn();
+    const ttl = cacheKey.startsWith('embed:') ? 86400 : 3600;
+    await this.set(cacheKey, JSON.stringify(result), ttl);
+
+    return result;
+  }
+
   getStats() {
     return {
       memoryCacheSize: this.memoryCache.size,

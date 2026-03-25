@@ -6,8 +6,9 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AiService } from '../ai/ai.service';
-import { AzureBlobService } from './azure-blob.service';
+import { AiService } from '../ai/services/ai.service.js';
+import { SupabaseStorageService } from './supabase-storage.service.js';
+import { buildCertificateExtractionPrompt } from '../ai/templates/certificate.template.js';
 import { CreateCertificateDto } from './dto/create-certificate.dto';
 import { UpdateCertificateDto } from './dto/update-certificate.dto';
 import { basename } from 'path';
@@ -22,7 +23,7 @@ export class CertificatesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
-    private readonly azureBlob: AzureBlobService,
+    private readonly supabaseStorage: SupabaseStorageService,
   ) {}
 
   async create(
@@ -43,8 +44,8 @@ export class CertificatesService {
     });
     if (existing) throw new BadRequestException('Já existe um certificado para esta formação.');
 
-    // Upload para Azure Blob Storage
-    const fileUrl = await this.azureBlob.uploadFile({
+    // Upload para Supabase Storage
+    const fileUrl = await this.supabaseStorage.uploadFile({
       buffer: file.buffer,
       originalname: file.originalname,
       mimetype: file.mimetype,
@@ -125,8 +126,8 @@ export class CertificatesService {
   async remove(userId: string, id: string) {
     const cert = await this.findOne(userId, id);
 
-    // Apagar ficheiro do Azure Blob Storage
-    await this.azureBlob.deleteFile(cert.fileUrl);
+    // Apagar ficheiro do Supabase Storage
+    await this.supabaseStorage.deleteFile(cert.fileUrl);
 
     await this.prisma.certificate.delete({ where: { id } });
     return { message: 'Certificado eliminado com sucesso.' };
@@ -199,26 +200,12 @@ export class CertificatesService {
         documentExtraText = documentExtraText.substring(0, 2500);
       }
 
-      const prompt = `Analisa as informações do certificado e extrai os metadados em JSON. Baseia-te preferencialmente no conteúdo extraído do próprio documento.
-
-Título da Formação Esperada: "${courseTitle}"
-Nome do Ficheiro Original: "${filename}"
-${hints.courseName ? `Nome fornecido pelo utilizador: "${hints.courseName}"` : ''}
-${hints.provider ? `Fornecedor: "${hints.provider}"` : ''}
-
-=== CONTEÚDO EXTRAÍDO DO DOCUMENTO (VIA OCR) ===
-${documentExtraText ? documentExtraText : '(sem conteúdo extraído, faz o teu melhor com os nomes)'}
-================================================
-
-Responde APENAS com um JSON válido com estes campos (usa null se não conseguires determinar):
-{
-  "courseName": "nome completo do curso",
-  "provider": "empresa/plataforma que emitiu (ex: Microsoft, Salesforce, IBM, Udemy)",
-  "completionDate": "data ISO 8601 ou null",
-  "expirationDate": "data ISO 8601 ou null",
-  "durationHours": número ou null,
-  "confidence": "high|medium|low"
-}`;
+      const prompt = buildCertificateExtractionPrompt(
+        courseTitle,
+        filename,
+        documentExtraText,
+        { courseName: hints.courseName, provider: hints.provider }
+      );
 
       const response = await this.aiService.generateText(prompt);
 

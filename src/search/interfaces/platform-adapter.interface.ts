@@ -16,6 +16,10 @@ export interface CourseResult {
   relevanceScore?: number;
   /** True se o curso é gratuito, false se é pago */
   isFree?: boolean;
+  /** Rating interno da Softinsa (média de colaboradores) */
+  internalRating?: number;
+  /** Relevância interna da Softinsa (média de colaboradores) */
+  internalRelevance?: number;
 }
 
 export interface PlatformConfig {
@@ -27,5 +31,5 @@ export interface PlatformConfig {
 
 export interface IPlatformAdapter {
   readonly platformName: string;
-  search(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number }): Promise<CourseResult[]>;
+  search(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number; minRelevance?: number }): Promise<CourseResult[]>;
 }

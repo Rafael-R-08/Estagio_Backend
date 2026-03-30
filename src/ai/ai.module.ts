@@ -7,14 +7,12 @@ import { AiService } from './services/ai.service';
 import { EmbeddingService } from './services/embedding.service';
 import { IndexingService } from './services/indexing.service';
 import { IndexingSeedService } from './services/indexing-seed.service';
-import { RecommendationService } from './services/recommendation.service.js';
-import { RagService } from './services/rag.service.js';
-import { AnalysisService } from './services/analysis.service.js';
+import { RecommendationService } from './services/recommendation.service';
+import { RagService } from './services/rag.service';
+import { AnalysisService } from './services/analysis.service';
 import { CourseIndexingListener } from './listeners/course-indexing.listener';
 import { AiController } from './ai.controller';
-import { RagController } from '../rag/rag.controller';
-import { RecommendationController } from '../recommendations/recommendation.controller';
-import { AnalysisController } from '../analysis/analysis.controller';
+
 import { PrismaModule } from '../prisma/prisma.module';
 import { forwardRef } from '@nestjs/common';
 
@@ -25,10 +23,7 @@ import { forwardRef } from '@nestjs/common';
     ScheduleModule.forRoot(),
   ],
   controllers: [
-    AiController,
-    RagController,
-    RecommendationController,
-    AnalysisController
+    AiController
   ],
   providers: [
     AiService,
@@ -43,8 +38,9 @@ import { forwardRef } from '@nestjs/common';
   exports: [
     AiService, 
     EmbeddingService, 
-    IndexingService, 
-    RecommendationService, 
+    IndexingService,
+    IndexingSeedService,
+    RecommendationService,
     RagService, 
     AnalysisService
   ],

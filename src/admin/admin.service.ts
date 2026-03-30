@@ -7,8 +7,6 @@ import { UpdateAdminPlatformDto } from './dto/update-admin-platform.dto';
 export class AdminService {
   constructor(private prisma: PrismaService) { }
 
-  // ── Users ────────────────────────────────────────────────────────────────
-
   async getUsers() {
     return this.prisma.user.findMany({
       select: {
@@ -18,8 +16,7 @@ export class AdminService {
         role: true,
         isActive: true,
         experienceLevel: true,
-        jobTitle: true,
-        department: true,
+        userFunction: true,
         serviceLine: true,
         onboardingDone: true,
         managedLineId: true,
@@ -39,17 +36,14 @@ export class AdminService {
         role: true,
         isActive: true,
         experienceLevel: true,
-        techStack: true,
         interests: true,
-        jobTitle: true,
-        department: true,
-        location: true,
-        preferredLanguage: true,
+        userFunction: true,
         serviceLine: true,
         onboardingDone: true,
         managedLineId: true,
         createdAt: true,
         updatedAt: true,
+        skills: true,
       },
     });
     if (!user) throw new NotFoundException('Utilizador não encontrado');
@@ -86,13 +80,11 @@ export class AdminService {
     return { message: 'Utilizador eliminado com sucesso' };
   }
 
-  // ── Analytics ────────────────────────────────────────────────────────────
-
   async getAnalytics() {
     const now = new Date();
     const in90Days = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
 
-    const [completedTrainings, allTrainings, allUsers, expiringCerts] =
+    const [completedTrainings, allTrainings, allUsers, expiringCerts, userSkills] =
       await Promise.all([
         this.prisma.trainingRecord.findMany({
           where: { status: 'completed', completedAt: { not: null } },
@@ -103,7 +95,7 @@ export class AdminService {
           select: { platform: { select: { name: true } } },
         }),
         this.prisma.user.findMany({
-          select: { createdAt: true, techStack: true },
+          select: { createdAt: true },
           orderBy: { createdAt: 'asc' },
         }),
         this.prisma.certificate.findMany({
@@ -115,9 +107,11 @@ export class AdminService {
           },
           orderBy: { expirationDate: 'asc' },
         }),
+        this.prisma.userSkill.findMany({
+          select: { skillName: true },
+        }),
       ]);
 
-    // completedByMonth
     const completedMap = new Map<string, number>();
     for (const t of completedTrainings) {
       if (!t.completedAt) continue;
@@ -128,7 +122,6 @@ export class AdminService {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([month, count]) => ({ month, count }));
 
-    // platformUsage
     const platformMap = new Map<string, number>();
     for (const t of allTrainings) {
       const name = t.platform?.name ?? 'Outro';
@@ -138,7 +131,6 @@ export class AdminService {
       .sort(([, a], [, b]) => b - a)
       .map(([name, count]) => ({ name, count }));
 
-    // userGrowth — cumulative count per month
     const growthMap = new Map<string, number>();
     for (const u of allUsers) {
       const key = `${u.createdAt.getFullYear()}-${String(u.createdAt.getMonth() + 1).padStart(2, '0')}`;
@@ -152,19 +144,15 @@ export class AdminService {
         return { month, count: cumulative };
       });
 
-    // topSkills
     const skillMap = new Map<string, number>();
-    for (const u of allUsers) {
-      for (const skill of u.techStack ?? []) {
-        skillMap.set(skill, (skillMap.get(skill) ?? 0) + 1);
-      }
+    for (const us of userSkills) {
+      skillMap.set(us.skillName, (skillMap.get(us.skillName) ?? 0) + 1);
     }
     const topSkills = [...skillMap.entries()]
       .sort(([, a], [, b]) => b - a)
       .slice(0, 10)
       .map(([skill, count]) => ({ skill, count }));
 
-    // expiringCertificates
     const expiringCertificates = expiringCerts.map((c) => {
       const daysLeft = Math.ceil(
         (c.expirationDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
@@ -187,8 +175,6 @@ export class AdminService {
     };
   }
 
-  // ── Platforms ────────────────────────────────────────────────────────────
-
   async getPlatforms() {
     const platforms = await this.prisma.learningPlatform.findMany({
       orderBy: { name: 'asc' },
@@ -201,7 +187,6 @@ export class AdminService {
       apiKeyRequired: p.apiKeyRequired,
       isActive: p.enabled,
       isSearchEnabled: p.searchEnabled,
-      // apiKey is omitted from list to avoid leaking secrets
     }));
   }
 

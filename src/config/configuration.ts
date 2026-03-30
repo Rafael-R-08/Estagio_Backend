@@ -23,16 +23,17 @@ export default () => ({
     password: process.env.REDIS_PASSWORD || undefined,
   },
 
-  githubModels: {
-    token: process.env.GITHUB_TOKEN || '',
-    model: process.env.GITHUB_MODEL || 'gpt-4o',
-    embedModel: process.env.GITHUB_EMBED_MODEL || 'text-embedding-3-small',
-    endpoint: process.env.GITHUB_MODELS_ENDPOINT || 'https://models.inference.ai.azure.com',
+  groq: {
+    apiKey: process.env.GROQ_API_KEY || '',
   },
 
   supabase: {
     url: process.env.SUPABASE_URL || '',
     key: process.env.SUPABASE_SERVICE_KEY || '',
     bucket: process.env.SUPABASE_BUCKET || 'certificates',
+  },
+
+  bullmq: {
+    concurrency: parseInt(process.env.BULLMQ_CONCURRENCY || '2', 10),
   },
 });

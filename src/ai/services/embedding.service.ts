@@ -1,8 +1,7 @@
-// src/ai/services/embedding.service.ts
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AiService } from './ai.service.js';
 import { ChunkSource } from '@prisma/client';
+import { pipeline } from '@xenova/transformers';
 
 export interface SearchResult {
   id: string;
@@ -14,16 +13,41 @@ export interface SearchResult {
 }
 
 @Injectable()
-export class EmbeddingService {
+export class EmbeddingService implements OnModuleInit {
   private readonly logger = new Logger(EmbeddingService.name);
+  private extractor: any;
+  private readonly modelName = 'Xenova/all-MiniLM-L6-v2';
 
-  constructor(
-    private prisma: PrismaService,
-    private aiService: AiService,
-  ) {}
+  constructor(private prisma: PrismaService) {}
+
+  async onModuleInit() {
+    this.logger.log(`Inicializando modelo de embeddings: ${this.modelName}...`);
+    try {
+      this.extractor = await pipeline('feature-extraction', this.modelName);
+      this.logger.log('Modelo de embeddings carregado com sucesso.');
+    } catch (error: any) {
+      this.logger.error(`Erro ao carregar modelo de embeddings: ${error.message}`);
+    }
+  }
 
   /**
-   * Indexa um chunk de texto gerando e armazenando seu embedding com metadados de fonte
+   * Gera embedding localmente (384 dimensões)
+   */
+  async embed(text: string): Promise<number[]> {
+    if (!this.extractor) {
+      await this.onModuleInit();
+    }
+    
+    const output = await this.extractor(text, {
+      pooling: 'mean',
+      normalize: true,
+    });
+
+    return Array.from(output.data);
+  }
+
+  /**
+   * Indexa um chunk com o novo vetor de 384 dimensões
    */
   async indexChunk(
     content: string, 
@@ -31,17 +55,14 @@ export class EmbeddingService {
     sourceId?: string, 
     metadata?: Record<string, any>
   ) {
-    this.logger.log(`Indexando chunk [${source}]: ${content.substring(0, 50)}...`);
-
     try {
-      const embedding = await this.aiService.embed(content);
+      const embedding = await this.embed(content);
       const embeddingStr = `[${embedding.join(',')}]`;
       const metadataJson = metadata ? JSON.stringify(metadata) : null;
 
-      // Usamos queryRawUnsafe com placeholders para suportar o tipo vector
       const result = await this.prisma.$queryRawUnsafe<any[]>(`
         INSERT INTO "text_chunks" (
-          id, content, embedding, source, "sourceId", metadata, "createdAt", "lastUpdatedAt"
+          id, content, embedding, source, "sourceId", metadata, "createdAt"
         )
         VALUES (
           gen_random_uuid(),
@@ -50,10 +71,9 @@ export class EmbeddingService {
           $3::"ChunkSource",
           $4,
           $5::jsonb,
-          NOW(),
           NOW()
         )
-        RETURNING id, content, source, "sourceId", metadata, "createdAt"
+        RETURNING id, content, source
       `, content, embeddingStr, source, sourceId || null, metadataJson);
 
       return result[0];
@@ -64,7 +84,7 @@ export class EmbeddingService {
   }
 
   /**
-   * Pesquisa chunks similares com filtro opcional por fonte
+   * Pesquisa semântica (Cosine Distance <=> ou Inner Product em vetores normalizados)
    */
   async searchSimilar(
     query: string, 
@@ -72,7 +92,7 @@ export class EmbeddingService {
     sourceFilter?: ChunkSource[]
   ): Promise<SearchResult[]> {
     try {
-      const queryEmbedding = await this.aiService.embed(query);
+      const queryEmbedding = await this.embed(query);
       const queryEmbeddingStr = `[${queryEmbedding.join(',')}]`;
 
       let whereClause = '';
@@ -101,7 +121,7 @@ export class EmbeddingService {
         content: row.content,
         source: row.source,
         metadata: row.metadata,
-        similarity: 1 - row.distance,
+        similarity: 1 - (row.distance || 0),
         createdAt: row.createdAt
       }));
     } catch (error: any) {
@@ -110,16 +130,10 @@ export class EmbeddingService {
     }
   }
 
-  /**
-   * Alias para searchSimilar (para compatibilidade com controladores antigos se houver)
-   */
-  async searchChunks(query: string, limit: number = 5) {
-    return this.searchSimilar(query, limit);
+  async deleteAll() {
+    return this.prisma.$executeRawUnsafe('TRUNCATE TABLE text_chunks;');
   }
 
-  /**
-   * Lista chunks indexados
-   */
   async listChunks(limit: number = 10) {
     return this.prisma.textChunk.findMany({
       orderBy: { createdAt: 'desc' },
@@ -127,34 +141,17 @@ export class EmbeddingService {
     });
   }
 
-  /**
-   * Deleta chunks por IDs
-   */
   async deleteChunks(ids: string[]) {
     return this.prisma.textChunk.deleteMany({
       where: { id: { in: ids } }
     });
   }
 
-  /**
-   * Deleta todos os chunks
-   */
-  async deleteAll() {
-    return this.prisma.textChunk.deleteMany();
-  }
-
-  /**
-   * Deleta um chunk específico
-   */
   async deleteChunk(id: string) {
     return this.prisma.textChunk.delete({ where: { id } });
   }
 
-  /**
-   * Estatísticas de indexação
-   */
   async getStats() {
-    // Usamos cast as any para evitar problemas de lint com o enum no groupBy se o IDE estiver dessincronizado
     const counts = await this.prisma.textChunk.groupBy({
       by: ['source'] as any,
       _count: { id: true }

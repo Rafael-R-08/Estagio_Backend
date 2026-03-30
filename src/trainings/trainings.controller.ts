@@ -18,6 +18,8 @@ import { UpdateTrainingDto } from './dto/update-training.dto';
 import { FilterTrainingDto } from './dto/filter-training.dto';
 import { TrackAccessDto } from './dto/track-access.dto';
 
+import { AddDocumentDto } from './dto/add-document.dto';
+
 interface AuthRequest {
   user: { userId: string };
 }
@@ -42,6 +44,38 @@ export class TrainingsController {
   }
 
   /**
+   * POST /trainings/:id/documents
+   * Anexar documento a uma formação
+   */
+  @Post(':id/documents')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Anexar documento a uma formação' })
+  addDocument(
+    @Req() req: AuthRequest, 
+    @Param('id') id: string, 
+    @Body() dto: AddDocumentDto
+  ) {
+    const userId = req.user.userId;
+    return this.trainingsService.addDocument(userId, id, dto.fileUrl, dto.fileName);
+  }
+
+  /**
+   * DELETE /trainings/:id/documents/:docId
+   * Remover documento anexado
+   */
+  @Delete(':id/documents/:docId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Remover documento anexado' })
+  removeDocument(
+    @Req() req: AuthRequest,
+    @Param('id') id: string,
+    @Param('docId') docId: string
+  ) {
+    const userId = req.user.userId;
+    return this.trainingsService.removeDocument(userId, id, docId);
+  }
+
+  /**
    * POST /trainings/track-access
    * Registar o clique num resultado de pesquisa para dar feedback no futuro
    */
@@ -52,6 +86,32 @@ export class TrainingsController {
   trackAccess(@Req() req: AuthRequest, @Body() dto: TrackAccessDto) {
     const userId = req.user.userId;
     return this.trainingsService.trackAccess(userId, dto);
+  }
+
+  /**
+   * POST /trainings/add-to-plan
+   * Guardar curso nos planos (para fazer mais tarde)
+   */
+  @Post('add-to-plan')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Guardar curso nos planos' })
+  @ApiResponse({ status: 201, description: 'Curso adicionado aos planos' })
+  addToPlan(@Req() req: AuthRequest, @Body() dto: TrackAccessDto) {
+    const userId = req.user.userId;
+    return this.trainingsService.addToPlan(userId, dto);
+  }
+
+  /**
+   * POST /trainings/start
+   * Iniciar formação imediatamente
+   */
+  @Post('start')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Iniciar formação' })
+  @ApiResponse({ status: 201, description: 'Formação iniciada' })
+  startTraining(@Req() req: AuthRequest, @Body() dto: TrackAccessDto) {
+    const userId = req.user.userId;
+    return this.trainingsService.startTraining(userId, dto);
   }
 
   /**
@@ -90,16 +150,6 @@ export class TrainingsController {
     return this.trainingsService.getStats(userId);
   }
 
-  /**
-   * GET /trainings/stats/company
-   * Média de horas de formação por utilizador na empresa
-   */
-  @Get('stats/company')
-  @ApiOperation({ summary: 'Média de horas de formação por utilizador na empresa' })
-  @ApiResponse({ status: 200, description: 'Estatísticas da empresa' })
-  getCompanyStats() {
-    return this.trainingsService.getCompanyStats();
-  }
 
   /**
    * GET /trainings/:id

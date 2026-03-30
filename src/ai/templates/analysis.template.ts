@@ -1,4 +1,8 @@
-// src/ai/templates/analysis.template.ts
+/**
+ * src/ai/templates/analysis.template.ts
+ * Templates compactados para Llama 3.3 (Audit Production).
+ */
+
 export interface CourseInput {
   title: string;
   description?: string;
@@ -9,48 +13,48 @@ export interface CourseInput {
   platform?: string;
 }
 
-export function buildSummaryPrompt(course: CourseInput): string {
-  return `És um especialista em formação profissional da Softinsa.
-Analisa o seguinte curso e gera um resumo curto (máximo 3 frases) em português de Portugal.
-O resumo deve ser claro, direto e útil para um colaborador decidir se quer fazer o curso.
+export function buildSummaryPrompt(course: CourseInput, lang: string = 'pt'): string {
+  const isEn = lang.toLowerCase() === 'en';
+  return `Role: Softinsa Training Expert. Task: Generate 3-sentence MAX summary.
+Language: ${isEn ? 'English' : 'Portuguese (Portugal)'}. Focus on practical benefit.
 
-Curso: ${course.title}
-Plataforma: ${course.platform || 'não especificada'}
-Descrição: ${course.description || 'não disponível'}
+Course: ${course.title}
+Platform: ${course.platform || 'not specified'}
+Description: ${course.description || 'not available'}
 
-Resumo:`.trim();
+Summary:`.trim();
 }
 
-export function buildTopicsPrompt(course: CourseInput): string {
-  return `Analisa o seguinte curso e extrai os 5 tópicos principais que serão abordados.
-Retorna APENAS uma lista JSON de strings, sem texto adicional. Exemplo: ["Tópico 1","Tópico 2","Tópico 3"]
+export function buildTopicsPrompt(course: CourseInput, lang: string = 'pt'): string {
+  const isEn = lang.toLowerCase() === 'en';
+  return `Task: Extract 5 main topics. Language: ${isEn ? 'English' : 'Portuguese (Portugal)'}.
+Respond ONLY with a JSON array of strings. 
+Example: ["T1","T2","T3"]
 
-Curso: ${course.title}
-Descrição: ${course.description || 'não disponível'}
+Course: ${course.title}
+Desc: ${course.description || 'n/a'}
 
-Tópicos (JSON array):`.trim();
+Topics:`.trim();
 }
 
-export function buildClassificationPrompt(course: CourseInput): string {
-  return `Classifica o seguinte curso de acordo com as categorias disponíveis em formato JSON.
-Campos: type, level, targetProfile.
+export function buildClassificationPrompt(course: CourseInput, lang: string = 'pt'): string {
+  const isEn = lang.toLowerCase() === 'en';
+  return `Task: Classify course in JSON. Fields: type, level, targetProfile(array).
+Types: technical, softskills, cloud, security, data, devops, management, other.
+Levels: beginner, intermediate, advanced.
+Profiles: junior, mid, senior, lead.
 
-Tipos: "technical", "softskills", "cloud", "security", "data", "devops", "management", "other"
-Níveis: "beginner", "intermediate", "advanced"
-Perfís: "junior", "mid", "senior", "lead" (array)
-
-Curso: ${course.title}
-Descrição: ${course.description || 'não disponível'}
-
-Classificação (JSON):`.trim();
+Course: ${course.title}
+Classification:`.trim();
 }
 
-export function buildSimplifyPrompt(course: CourseInput): string {
-  return `Simplifica a descrição do seguinte curso para linguagem acessível em PT-PT.
-Máximo 2 frases. Foca no benefício prático.
+export function buildSimplifyPrompt(course: CourseInput, lang: string = 'pt'): string {
+  const isEn = lang.toLowerCase() === 'en';
+  return `Task: Simplify description for accessibility. MAX 2 sentences. 
+Language: ${isEn ? 'English' : 'Portuguese (Portugal)'}. Focus on benefit.
 
-Curso: ${course.title}
-Descrição original: ${course.description || 'não disponível'}
+Course: ${course.title}
+Original: ${course.description || 'n/a'}
 
-Descrição simplificada:`.trim();
+Simplified:`.trim();
 }

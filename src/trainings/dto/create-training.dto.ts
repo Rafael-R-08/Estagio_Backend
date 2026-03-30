@@ -39,16 +39,21 @@ export class CreateTrainingDto {
   @IsDateString()
   completedAt?: string;
 
-  @ApiPropertyOptional({ example: 8, description: 'Duração em horas' })
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  durationHours?: number;
 
   @ApiPropertyOptional({ example: 'Muito bom para quem começa com Azure' })
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ example: 'Em evolução', description: 'Nível de progresso customizado' })
+  @IsOptional()
+  @IsString()
+  progressLevel?: string;
+
+  @ApiPropertyOptional({ example: 1, description: 'Ordem de prioridade para cursos guardados' })
+  @IsOptional()
+  @IsInt()
+  priorityOrder?: number;
 
   @ApiPropertyOptional({ example: 4, description: 'Rating de 1 a 5' })
   @IsOptional()
@@ -56,4 +61,11 @@ export class CreateTrainingDto {
   @Min(1)
   @Max(5)
   rating?: number;
+
+  @ApiPropertyOptional({ example: 4, description: 'Relevância de 1 a 5' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  relevance?: number;
 }

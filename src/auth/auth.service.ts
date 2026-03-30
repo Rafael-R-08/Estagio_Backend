@@ -3,15 +3,17 @@ import {
   Injectable, 
   ConflictException, 
   UnauthorizedException, 
-  NotFoundException 
+  NotFoundException,
+  Logger
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { UpdateUserSettingsDto } from './dto/update-user-settings.dto';
+import { OnboardingDto } from './dto/onboarding.dto';
 import { Role } from '@prisma/client';
 
 @Injectable()
@@ -69,7 +71,6 @@ export class AuthService {
         name: user.name,
         role: user.role,
         experienceLevel: user.experienceLevel,
-        techStack: user.techStack,
       },
     };
   }
@@ -83,65 +84,66 @@ export class AuthService {
         name: true,
         role: true,
         experienceLevel: true,
-        techStack: true,
         interests: true,
-        jobTitle: true,
-        department: true,
-        location: true,
-        preferredLanguage: true,
         serviceLine: true,
         onboardingDone: true,
         managedLineId: true,
+        userFunction: true,
       },
     });
     if (!user) throw new UnauthorizedException('User not found');
     return user;
   }
 
-  async onboarding(userId: string, serviceLine: string) {
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        serviceLine: serviceLine as any,
-        onboardingDone: true,
-      },
+  async onboarding(userId: string, dto: OnboardingDto) {
+    const { skills, ...userData } = dto;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          ...userData,
+          onboardingDone: true,
+        },
+      });
+
+      await tx.userSkill.deleteMany({
+        where: { userId },
+      });
+
+      if (skills && skills.length > 0) {
+        await tx.userSkill.createMany({
+          data: skills.map((s) => ({
+            userId,
+            skillName: s.skillName,
+            yearsOfExperience: s.yearsOfExperience,
+            level: s.level,
+          })),
+        });
+      }
     });
+
     return this.getMe(userId);
   }
 
   async updateProfile(
     userId: string,
-    dto: { name?: string; experienceLevel?: string; techStack?: string[]; interests?: string[]; jobTitle?: string; department?: string; location?: string; preferredLanguage?: string; serviceLine?: string },
+    dto: { name?: string; experienceLevel?: any; interests?: string[]; serviceLine?: any; userFunction?: string },
   ) {
-    const data: Record<string, unknown> = {};
-    if (dto.name !== undefined) data.name = dto.name;
-    if (dto.experienceLevel !== undefined) data.experienceLevel = dto.experienceLevel;
-    if (dto.techStack !== undefined) data.techStack = dto.techStack;
-    if (dto.interests !== undefined) data.interests = dto.interests;
-    if (dto.jobTitle !== undefined) data.jobTitle = dto.jobTitle;
-    if (dto.department !== undefined) data.department = dto.department;
-    if (dto.location !== undefined) data.location = dto.location;
-    if (dto.preferredLanguage !== undefined) data.preferredLanguage = dto.preferredLanguage;
-    if (dto.serviceLine !== undefined) data.serviceLine = dto.serviceLine;
-
     const user = await this.prisma.user.update({
       where: { id: userId },
-      data,
+      data: dto,
       select: {
         id: true,
         email: true,
         name: true,
         role: true,
         experienceLevel: true,
-        techStack: true,
         interests: true,
-        jobTitle: true,
-        department: true,
-        location: true,
-        preferredLanguage: true,
         serviceLine: true,
         onboardingDone: true,
         managedLineId: true,
+        userFunction: true,
       },
     });
     return user;
@@ -152,24 +154,22 @@ export class AuthService {
       where: { userId },
     });
     if (settings) return settings;
-    return {
-      userId,
-      aiResponseDetail: null,
-      aiResponseLanguage: null,
-      aiExplainReasoning: false,
-      aiRecommendationMode: null,
-      notifyWeeklyRecs: true,
-      notifyCertExpiry: true,
-      notifyProgress: true,
-      notifyByEmail: true,
-      notifyInApp: true,
-      adminCanSeeRecs: true,
-      aiCanUseHistory: true,
-      uiLanguage: 'pt',
-    };
+    
+    // Create Default settings
+    return this.prisma.userSettings.create({
+      data: {
+        userId,
+        notifyWeeklyRecs: true,
+        notifyCertExpiry: true,
+        notifyProgress: true,
+        notifyByEmail: true,
+        notifyInApp: true,
+        uiLanguage: 'pt',
+      }
+    });
   }
 
-  async upsertSettings(userId: string, dto: UpdateUserSettingsDto) {
+  async upsertSettings(userId: string, dto: any) {
     return this.prisma.userSettings.upsert({
       where: { userId },
       update: dto,
@@ -179,28 +179,15 @@ export class AuthService {
 
   private async generateTokens(sub: string, email: string, role: Role) {
     const payload = { sub, email, role };
-
     const secret = this.configService.get<string>('jwt.secret') || 'dev-secret';
     const refreshSecret = this.configService.get<string>('jwt.refreshTokenSecret') || 'dev-refresh-secret';
 
-    const accessToken = await this.jwt.signAsync(payload, {
-      secret,
-      expiresIn: '15m',
-    });
-
-    const refreshToken = await this.jwt.signAsync(payload, {
-      secret: refreshSecret,
-      expiresIn: '7d',
-    });
+    const accessToken = await this.jwt.signAsync(payload, { secret, expiresIn: '15m' });
+    const refreshToken = await this.jwt.signAsync(payload, { secret: refreshSecret, expiresIn: '7d' });
 
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-
     await this.prisma.refreshToken.create({
-      data: {
-        userId: sub,
-        token: refreshToken,
-        expiresAt,
-      },
+      data: { userId: sub, token: refreshToken, expiresAt },
     });
 
     return { access_token: accessToken, refresh_token: refreshToken };
@@ -209,24 +196,15 @@ export class AuthService {
   async refreshToken(refreshToken: string) {
     try {
       const refreshSecret = this.configService.get<string>('jwt.refreshTokenSecret') || 'dev-refresh-secret';
-      
-      const payload = await this.jwt.verifyAsync(refreshToken, {
-        secret: refreshSecret,
-      });
-
-      const storedToken = await this.prisma.refreshToken.findUnique({
-        where: { token: refreshToken },
-      });
-
-      if (!storedToken || storedToken.expiresAt < new Date()) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-
-      const user = await this.prisma.user.findUnique({ 
-        where: { id: payload.sub } 
-      });
+      const payload = await this.jwt.verifyAsync(refreshToken, { secret: refreshSecret });
+      const storedToken = await this.prisma.refreshToken.findUnique({ where: { token: refreshToken } });
+      if (!storedToken || storedToken.expiresAt < new Date()) throw new UnauthorizedException('Invalid refresh token');
+      const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
       if (!user) throw new UnauthorizedException('Invalid refresh token');
-
+      
+      // Revoke old token
+      await this.prisma.refreshToken.delete({ where: { token: refreshToken } });
+      
       return this.generateTokens(user.id, user.email, user.role);
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
@@ -234,14 +212,10 @@ export class AuthService {
   }
 
   async sendVerificationEmail(userId: string, email: string) {
-    const token = await this.jwt.signAsync(
-      { userId }, 
-      {
-        secret: this.configService.get<string>('jwt.verificationTokenSecret') || 'dev-verification-secret',
-        expiresIn: '24h',
-      }
-    );
-
+    const token = await this.jwt.signAsync({ userId }, {
+      secret: this.configService.get<string>('jwt.verificationTokenSecret') || 'dev-verification-secret',
+      expiresIn: '24h',
+    });
     console.log(`Verification email token for ${email}: ${token}`);
   }
 
@@ -250,12 +224,7 @@ export class AuthService {
       const payload = await this.jwt.verifyAsync(token, {
         secret: this.configService.get<string>('jwt.verificationTokenSecret') || 'dev-verification-secret',
       });
-
-      await this.prisma.user.update({
-        where: { id: payload.userId },
-        data: { emailVerified: true },
-      });
-
+      await this.prisma.user.update({ where: { id: payload.userId }, data: { emailVerified: true } });
       return { message: 'Email verificado com sucesso' };
     } catch {
       throw new UnauthorizedException('Invalid verification token');
@@ -265,17 +234,11 @@ export class AuthService {
   async sendPasswordResetEmail(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) throw new NotFoundException('Usuário não encontrado');
-
-    const token = await this.jwt.signAsync(
-      { userId: user.id }, 
-      {
-        secret: this.configService.get<string>('jwt.passwordResetTokenSecret') || 'dev-reset-secret',
-        expiresIn: '1h',
-      }
-    );
-
+    const token = await this.jwt.signAsync({ userId: user.id }, {
+      secret: this.configService.get<string>('jwt.passwordResetTokenSecret') || 'dev-reset-secret',
+      expiresIn: '1h',
+    });
     console.log(`Password reset token for ${email}: ${token}`);
-    
     return { message: 'Email de recuperação enviado com sucesso' };
   }
 
@@ -284,22 +247,27 @@ export class AuthService {
       const payload = await this.jwt.verifyAsync(token, {
         secret: this.configService.get<string>('jwt.passwordResetTokenSecret') || 'dev-reset-secret',
       });
-
-      const user = await this.prisma.user.findUnique({ 
-        where: { id: payload.userId } 
-      });
+      const user = await this.prisma.user.findUnique({ where: { id: payload.userId } });
       if (!user) throw new NotFoundException('Usuário não encontrado');
-
       const passwordHash = await bcrypt.hash(newPassword, 10);
-
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash },
-      });
-
+      await this.prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
       return { message: 'Senha redefinida com sucesso' };
     } catch {
       throw new UnauthorizedException('Invalid password reset token');
+    }
+  }
+
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async cleanupExpiredTokens() {
+    try {
+      const { count } = await this.prisma.refreshToken.deleteMany({
+        where: { expiresAt: { lt: new Date() } },
+      });
+      if (count > 0) {
+        Logger.log(`[Cron] Cleaned up ${count} expired refresh tokens.`, 'AuthService');
+      }
+    } catch (error) {
+      Logger.error('[Cron] Failed to clean up expired refresh tokens:', error, 'AuthService');
     }
   }
 }

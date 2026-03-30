@@ -1,13 +1,23 @@
-import { IsOptional, IsString, IsEnum, IsArray } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { IsOptional, IsString, IsEnum, IsArray, ValidateNested, IsInt, Min, IsNotEmpty } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
-import { ServiceLine } from '@prisma/client';
+import { ServiceLine, ExperienceLevel } from '@prisma/client';
 
-export enum ExperienceLevel {
-  JUNIOR = 'junior',
-  MID = 'mid',
-  SENIOR = 'senior',
-  LEAD = 'lead',
+class SkillUpdateDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  skillName: string;
+
+  @ApiProperty()
+  @IsInt()
+  @Min(0)
+  yearsOfExperience: number;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  level: string;
 }
 
 export class UpdateProfileDto {
@@ -18,15 +28,8 @@ export class UpdateProfileDto {
 
   @ApiProperty({ required: false, enum: ExperienceLevel })
   @IsOptional()
-  @Transform(({ value }) => value?.toLowerCase())
   @IsEnum(ExperienceLevel)
   experienceLevel?: ExperienceLevel;
-
-  @ApiProperty({ required: false, type: [String] })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  techStack?: string[];
 
   @ApiProperty({ required: false, type: [String] })
   @IsOptional()
@@ -37,27 +40,17 @@ export class UpdateProfileDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
-  jobTitle?: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  department?: string;
-
-  @ApiProperty({ required: false, enum: ['escritorio', 'remoto', 'hibrido'] })
-  @IsOptional()
-  @Transform(({ value }) => value?.toLowerCase())
-  @IsString()
-  location?: string;
-
-  @ApiProperty({ required: false, enum: ['PT', 'EN', 'ES', 'FR'] })
-  @IsOptional()
-  @Transform(({ value }) => value?.toUpperCase())
-  @IsString()
-  preferredLanguage?: string;
+  userFunction?: string;
 
   @ApiProperty({ required: false, enum: ServiceLine })
   @IsOptional()
   @IsEnum(ServiceLine)
   serviceLine?: ServiceLine;
+
+  @ApiProperty({ required: false, type: [SkillUpdateDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SkillUpdateDto)
+  skills?: SkillUpdateDto[];
 }

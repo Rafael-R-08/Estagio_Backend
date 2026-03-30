@@ -1,9 +1,11 @@
 // src/ai/services/recommendation.service.ts 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
-import { RagService } from './rag.service.js';
+import { RagService } from './rag.service';
 import { ChunkSource, TrainingStatus } from '@prisma/client';
-import { buildRecommendationPrompt } from '../templates/rag.template.js';
+import { buildRecommendationPrompt } from '../templates/rag.template';
+import { IndexingSeedService } from './indexing-seed.service';
 
 @Injectable()
 export class RecommendationService {
@@ -12,130 +14,115 @@ export class RecommendationService {
   constructor(
     private prisma: PrismaService,
     private ragService: RagService,
+    private configService: ConfigService,
+    private indexingSeedService: IndexingSeedService,
   ) {}
 
-  /**
-   * Pipeline de recomendação principal que utiliza RAG e feedback histórico.
-   */
   async recommendForUser(userId: string) {
     this.logger.log(`Gerando recomendações personalizadas para o utilizador: ${userId}`);
 
-    // 1. Carregar perfil do utilizador com settings e preferências (conforme schema)
+    const count = await this.prisma.textChunk.count();
+    if (count === 0) {
+      this.logger.warn('Base de conhecimento vazia detectada. Iniciando indexação...');
+      this.indexingSeedService.seedFromExistingData().catch(e => this.logger.error('Falha na indexação', e));
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: { 
-        settings: true,
-        preferences: true
+        skills: true,
       }
     });
 
     if (!user) throw new NotFoundException('Utilizador não encontrado');
 
-    // 2. Carregar registos de treino (TrainingRecord NÃO tem relação course no schema)
     const trainings = await this.prisma.trainingRecord.findMany({
       where: { userId },
-      include: { platform: true }
     });
 
-    // Mapear categorias usando TrainingStatus real (minusculas)
     const categories = {
       completed: trainings.filter(t => t.status === TrainingStatus.completed).map(t => t.title),
       ongoing: trainings.filter(t => t.status === TrainingStatus.ongoing).map(t => t.title),
-      accessed: trainings.filter(t => t.status === TrainingStatus.accessed).map(t => t.title),
-      priority: trainings.filter(t => t.status === TrainingStatus.priority).map(t => t.title),
     };
 
-    // 3. Construir query RAG baseada em objetivos e histórico
-    // learningGoals está em preferences no schema REAL
-    const learningGoals = user.preferences?.learningGoals?.join(', ') || '';
-    const ragQuery = `Cursos recomendados para ${user.jobTitle || 'colaborador'} focados em ${learningGoals}. Histórico: ${categories.completed.slice(0, 3).join(', ')}`;
+    // 1. Obter idioma do utilizador
+    const settings = await this.prisma.userSettings.findUnique({ where: { userId } });
+    const lang = settings?.uiLanguage || 'pt';
+    const isEn = lang === 'en';
 
-    // 4. Chamar RagService com fontes filtradas para obter contexto inicial
-    const resultContext = await this.ragService.query(ragQuery, {
-      topK: 12,
-      maxContextLength: 4000,
-      sourceFilter: [ChunkSource.EXTERNAL_COURSE, ChunkSource.SOFTINSA_LEARNING],
-      // No systemPrompt aqui, pois será construído com o resultado do RAG
-      generateOptions: {
-        userId,
-        maxTokens: 1500,
-        temperature: 0.4,
-        cacheTtl: 1800
-      }
-    });
+    const learningInterests = user.interests?.join(', ') || '';
+    const skillsStr = user.skills?.map(s => s.skillName).join(', ') || '';
+    
+    const ragQuery = isEn 
+      ? `Recommendations for ${user.userFunction || 'Employee'} (${user.serviceLine || 'General'}). Interests: ${learningInterests}. Skills: ${skillsStr}.`
+      : `Recomendações para ${user.userFunction || 'Colaborador'} (${user.serviceLine || 'Geral'}). Interesses: ${learningInterests}. Skills: ${skillsStr}.`;
 
-    // 5. Preparar Prompt via Template
+    // 2. Prompt enriquecido bilingue
     const systemPrompt = buildRecommendationPrompt(
       {
-        techStack: user.techStack || [],
         interests: user.interests || [],
         experienceLevel: user.experienceLevel || 'N/A',
-        learningGoals: user.preferences?.learningGoals || [],
         completedTrainings: categories.completed,
-        serviceLine: user.serviceLine || undefined,
+        ongoingTrainings: categories.ongoing,
+        serviceLine: user.serviceLine?.toString() || undefined,
+        userFunction: user.userFunction || undefined,
+        skills: user.skills.map(s => ({
+          skillName: s.skillName,
+          level: s.level,
+          yearsOfExperience: s.yearsOfExperience
+        })),
       },
-      resultContext.answer, // Usamos o contexto recuperado pelo RAG
+      "", // Contexto preenchido pelo RAG
       ragQuery,
-      {
-        aiResponseDetail: user.settings?.aiResponseDetail,
-        aiResponseLanguage: user.settings?.aiResponseLanguage,
-        aiExplainReasoning: user.settings?.aiExplainReasoning,
-        aiRecommendationMode: user.settings?.aiRecommendationMode,
-      }
+      lang
     );
 
-    // 6. Chamar RagService novamente com o prompt personalizado
+    // 3. Chamada ao RAG com idioma e Llama 3.3
     const finalResult = await this.ragService.query(ragQuery, {
-      topK: 12, // Pode ser ajustado se o primeiro RAG já trouxe bons resultados
-      maxContextLength: 4000,
-      sourceFilter: [ChunkSource.EXTERNAL_COURSE, ChunkSource.SOFTINSA_LEARNING],
+      topK: 10,
+      maxContextLength: 3500,
+      sourceFilter: [ChunkSource.EXTERNAL_COURSE],
       systemPrompt: systemPrompt,
       generateOptions: {
         userId,
+        language: lang as 'pt' | 'en',
         maxTokens: 1500,
-        temperature: 0.4,
-        cacheTtl: 1800
-      }
+        temperature: 0.1, // Rigor para JSON
+        cacheTtl: 3600,
+        responseFormat: 'json_object',
+      },
+      model: 'llama-3.3-70b-versatile',
     });
 
-    let recommendations: any = finalResult.answer;
+    let recommendations: any = {
+      interests: "Não foi possível gerar recomendações no momento.",
+      improvement: "Não foi possível gerar recomendações de melhoria.",
+      missing_skills: "Não foi possível gerar recomendações de novas competências."
+    };
     
-    // Tentar fazer parse do JSON se a resposta parecer um objeto
-    if (finalResult.answer.trim().startsWith('{')) {
+    const trimmedAnswer = finalResult.answer.trim();
+    if (trimmedAnswer.includes('{')) {
       try {
-        // Limpar possíveis blocos de código markdown ```json ... ```
-        const jsonContent = finalResult.answer.replace(/```json\n?|```/g, '').trim();
-        recommendations = JSON.parse(jsonContent);
+        const startIdx = trimmedAnswer.indexOf('{');
+        const endIdx = trimmedAnswer.lastIndexOf('}') + 1;
+        let jsonContent = trimmedAnswer.substring(startIdx, endIdx);
+        jsonContent = jsonContent.replace(/```json\n?|```/g, '').trim();
+        const parsed = JSON.parse(jsonContent);
+        recommendations = { ...recommendations, ...parsed };
       } catch (e) {
-        this.logger.warn('Falha ao parsear recomendações JSON, mantendo como string');
+        this.logger.warn(`Falha ao parsear JSON. Erro: ${e.message}`);
+        recommendations.interests = finalResult.answer;
       }
+    } else {
+      recommendations.interests = finalResult.answer;
     }
 
     return {
-      recommendations,
+      ...recommendations,
       metadata: {
         sourcesLength: finalResult.sources.length,
         timestamp: new Date().toISOString(),
-        chunksUsed: finalResult.sources.map(s => s.id)
       }
     };
-  }
-
-  // Métodos buildProfileContext e buildSystemPrompt removidos em favor do template centralizado
-
-  /**
-   * Guarda feedback seguindo o schema corrigido (relação com User)
-   */
-  async saveFeedback(userId: string, dto: any) {
-    return this.prisma.recommendationFeedback.create({
-      data: {
-        userId,
-        recommendationText: dto.recommendationText,
-        rating: dto.rating,
-        courseClicked: dto.courseClicked || false,
-        courseEnrolled: dto.courseEnrolled || false,
-        metadata: dto.metadata || {}
-      }
-    });
   }
 }

@@ -1,3 +1,4 @@
+// src/trainings/trainings.service.ts
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTrainingDto } from './dto/create-training.dto';
@@ -20,23 +21,22 @@ export class TrainingsService {
         platformId: dto.platformId ?? null,
         startedAt: dto.startedAt ? new Date(dto.startedAt) : null,
         completedAt: dto.completedAt ? new Date(dto.completedAt) : null,
-        durationHours: dto.durationHours ?? null,
-        notes: dto.notes ?? null,
         rating: dto.rating ?? null,
+        relevance: dto.relevance ?? null,
+        notes: dto.notes ?? null,
+        progressLevel: dto.progressLevel ?? null,
+        priorityOrder: dto.priorityOrder ?? null,
       },
       include: { platform: { select: { id: true, name: true } } },
     });
   }
 
   async trackAccess(userId: string, dto: TrackAccessDto) {
-    // Verifica se já existe um registo para este utilizador e URL
     const existing = await this.prisma.trainingRecord.findFirst({
       where: { userId, url: dto.url },
     });
 
-    if (existing) {
-      return existing; // Não substitui para não perder o histórico de 'ongoing' ou 'completed'
-    }
+    if (existing) return existing; 
 
     return this.prisma.trainingRecord.create({
       data: {
@@ -50,6 +50,54 @@ export class TrainingsService {
     });
   }
 
+  async addToPlan(userId: string, dto: TrackAccessDto) {
+    const existing = await this.prisma.trainingRecord.findFirst({
+      where: { userId, url: dto.url },
+    });
+
+    if (existing) {
+      if (existing.status === TrainingStatus.priority) return existing;
+      return this.update(userId, existing.id, { status: TrainingStatus.priority });
+    }
+
+    return this.prisma.trainingRecord.create({
+      data: {
+        userId,
+        title: dto.title,
+        url: dto.url,
+        platformId: dto.platformId ?? null,
+        status: TrainingStatus.priority,
+      },
+    });
+  }
+
+  async startTraining(userId: string, dto: TrackAccessDto) {
+    const existing = await this.prisma.trainingRecord.findFirst({
+      where: { userId, url: dto.url },
+    });
+
+    if (existing) {
+      if (existing.status === TrainingStatus.ongoing) return existing;
+      return this.update(userId, existing.id, { 
+        status: TrainingStatus.ongoing, 
+        startedAt: new Date().toISOString(),
+        progressLevel: 'A iniciar'
+      });
+    }
+
+    return this.prisma.trainingRecord.create({
+      data: {
+        userId,
+        title: dto.title,
+        url: dto.url,
+        platformId: dto.platformId ?? null,
+        status: TrainingStatus.ongoing,
+        startedAt: new Date(),
+        progressLevel: 'A iniciar'
+      },
+    });
+  }
+
   async getPendingFeedback(userId: string) {
     return this.prisma.trainingRecord.findMany({
       where: { userId, status: TrainingStatus.accessed },
@@ -59,14 +107,9 @@ export class TrainingsService {
   }
 
   async findAll(userId: string, filters: FilterTrainingDto) {
-    const where: Record<string, unknown> = { userId };
-
-    if (filters.status) {
-      where.status = filters.status;
-    }
-    if (filters.platformId) {
-      where.platformId = filters.platformId;
-    }
+    const where: any = { userId };
+    if (filters.status) where.status = filters.status;
+    if (filters.platformId) where.platformId = filters.platformId;
     if (filters.startDate || filters.endDate) {
       where.createdAt = {
         ...(filters.startDate ? { gte: new Date(filters.startDate) } : {}),
@@ -76,8 +119,15 @@ export class TrainingsService {
 
     return this.prisma.trainingRecord.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
-      include: { platform: { select: { id: true, name: true } } },
+      orderBy: [
+        { priorityOrder: 'asc' },
+        { createdAt: 'desc' }
+      ],
+      include: { 
+        platform: { select: { id: true, name: true } },
+        documents: true,
+        certificate: { select: { id: true, fileUrl: true } }
+      },
     });
   }
 
@@ -87,18 +137,16 @@ export class TrainingsService {
       include: {
         platform: { select: { id: true, name: true } },
         certificate: true,
+        documents: true,
       },
     });
-
     if (!record) throw new NotFoundException('Registo de formação não encontrado.');
-    if (record.userId !== userId) throw new ForbiddenException('Sem permissão para aceder a este registo.');
-
+    if (record.userId !== userId) throw new ForbiddenException('Sem permissão.');
     return record;
   }
 
   async update(userId: string, id: string, dto: UpdateTrainingDto) {
-    await this.findOne(userId, id); // verifica existência e ownership
-
+    await this.findOne(userId, id);
     return this.prisma.trainingRecord.update({
       where: { id },
       data: {
@@ -108,18 +156,45 @@ export class TrainingsService {
         ...(dto.platformId !== undefined && { platformId: dto.platformId }),
         ...(dto.startedAt !== undefined && { startedAt: dto.startedAt ? new Date(dto.startedAt) : null }),
         ...(dto.completedAt !== undefined && { completedAt: dto.completedAt ? new Date(dto.completedAt) : null }),
-        ...(dto.durationHours !== undefined && { durationHours: dto.durationHours }),
-        ...(dto.notes !== undefined && { notes: dto.notes }),
         ...(dto.rating !== undefined && { rating: dto.rating }),
+        ...(dto.relevance !== undefined && { relevance: dto.relevance }),
+        ...(dto.notes !== undefined && { notes: dto.notes }),
+        ...(dto.progressLevel !== undefined && { progressLevel: dto.progressLevel }),
+        ...(dto.priorityOrder !== undefined && { priorityOrder: dto.priorityOrder }),
       },
-      include: { platform: { select: { id: true, name: true } } },
+      include: { 
+        platform: { select: { id: true, name: true } },
+        documents: true 
+      },
     });
   }
 
   async remove(userId: string, id: string) {
-    await this.findOne(userId, id); // verifica existência e ownership
+    await this.findOne(userId, id);
     await this.prisma.trainingRecord.delete({ where: { id } });
     return { message: 'Registo eliminado com sucesso.' };
+  }
+
+  // --- Document Management ---
+
+  async addDocument(userId: string, trainingId: string, fileUrl: string, fileName: string) {
+    await this.findOne(userId, trainingId);
+    return this.prisma.trainingDocument.create({
+      data: {
+        trainingId,
+        fileUrl,
+        fileName,
+      }
+    });
+  }
+
+  async removeDocument(userId: string, trainingId: string, documentId: string) {
+    await this.findOne(userId, trainingId);
+    const doc = await this.prisma.trainingDocument.findUnique({ where: { id: documentId } });
+    if (!doc || doc.trainingId !== trainingId) throw new NotFoundException('Documento não encontrado.');
+    
+    await this.prisma.trainingDocument.delete({ where: { id: documentId } });
+    return { message: 'Documento removido.' };
   }
 
   async getStats(userId: string) {
@@ -127,7 +202,6 @@ export class TrainingsService {
       where: { userId },
       select: {
         status: true,
-        durationHours: true,
         rating: true,
         completedAt: true,
       },
@@ -139,9 +213,6 @@ export class TrainingsService {
       {} as Record<TrainingStatus, number>,
     );
     records.forEach((r) => { byStatus[r.status]++; });
-
-    const hoursRecords = records.filter((r) => r.durationHours !== null);
-    const totalHours = hoursRecords.reduce((sum, r) => sum + (r.durationHours ?? 0), 0);
 
     const ratingRecords = records.filter((r) => r.rating !== null);
     const avgRating =
@@ -156,39 +227,11 @@ export class TrainingsService {
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     }).length;
 
-    const completedThisYear = records.filter((r) => {
-      if (!r.completedAt) return false;
-      return new Date(r.completedAt).getFullYear() === now.getFullYear();
-    }).length;
-
     return {
       total,
       byStatus,
-      totalHours,
       avgRating: avgRating !== null ? Math.round(avgRating * 10) / 10 : null,
       completedThisMonth,
-      completedThisYear,
-    };
-  }
-
-  async getCompanyStats() {
-    // Aggregate average durationHours per user, then average across all users
-    const perUser = await this.prisma.trainingRecord.groupBy({
-      by: ['userId'],
-      _avg: { durationHours: true },
-    });
-
-    const usersWithHours = perUser.filter((u) => u._avg.durationHours !== null);
-    const companyAvgHours =
-      usersWithHours.length > 0
-        ? usersWithHours.reduce((sum, u) => sum + (u._avg.durationHours ?? 0), 0) /
-          usersWithHours.length
-        : null;
-
-    return {
-      companyAvgHours:
-        companyAvgHours !== null ? Math.round(companyAvgHours * 10) / 10 : null,
-      usersWithData: usersWithHours.length,
     };
   }
 }

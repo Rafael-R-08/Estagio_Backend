@@ -1,29 +1,34 @@
-// src/ai/templates/certificate.template.ts
+/**
+ * src/ai/templates/certificate.template.ts
+ * Templates compactados para Llama 3.3 (Audit Production).
+ */
+
 export function buildCertificateExtractionPrompt(
   courseTitle: string,
   filename: string,
   documentText: string,
+  lang: string = 'pt',
   hints: { courseName?: string; provider?: string } = {},
 ): string {
-  return `Analisa as informações do certificado e extrai os metadados em JSON para o sistema da Softinsa.
-Responde SEMPRE em Português de Portugal (PT-PT).
+  const isEn = lang.toLowerCase() === 'en';
+  const label = isEn ? 'English' : 'Portuguese (Portugal)';
 
-INFORMAÇÃO BASE:
-- Título da Formação Esperada: "${courseTitle}"
-- Nome do Ficheiro: "${filename}"
-${hints.courseName ? `- Nome sugerido: "${hints.courseName}"` : ''}
-${hints.provider ? `- Fornecedor sugerido: "${hints.provider}"` : ''}
+  return `Task: Extract certificate metadata. Language: ${label}.
+Input: ${isEn ? 'Expected Title' : 'Título Esperado'} "${courseTitle}", File "${filename}".
+${hints.courseName ? (isEn ? `Hint Name: "${hints.courseName}"` : `Sugestão Nome: "${hints.courseName}"`) : ''}
+${hints.provider ? (isEn ? `Hint Provider: "${hints.provider}"` : `Sugestão Fornecedor: "${hints.provider}"`) : ''}
 
-CONTEÚDO EXTRAÍDO DO DOCUMENTO (OCR):
-${documentText || '(Conteúdo não legível, usa os nomes acima)'}
+### DOCUMENT CONTENT (OCR)
+${documentText || (isEn ? 'Not readable.' : 'Sem texto legível.')}
 
-REQUISITO: Responde APENAS com um JSON válido com estes campos:
+### JSON FORMAT (Strict ISO-8601)
 {
-  "courseName": "nome completo do curso encontrado",
-  "provider": "entidade emissora (ex: Microsoft, Coursera, Udemy, IBM)",
-  "completionDate": "data de conclusão em formato ISO 8601 ou null",
-  "expirationDate": "data de validade em formato ISO 8601 ou null",
-  "durationHours": número de horas ou null,
+  "courseName": "Full found name",
+  "provider": "Issuer (Microsoft, AWS, etc.)",
+  "completionDate": "YYYY-MM-DD or null",
+  "expirationDate": "YYYY-MM-DD or null",
+  "durationHours": number or null,
   "confidence": "high|medium|low"
-}`.trim();
+}
+JSON:`.trim();
 }

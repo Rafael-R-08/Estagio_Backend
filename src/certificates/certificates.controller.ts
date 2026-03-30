@@ -13,7 +13,11 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  Sse,
+  MessageEvent,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { fromEvent, map, filter, Observable } from 'rxjs';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
@@ -23,6 +27,7 @@ import {
   ApiConsumes,
   ApiBody,
 } from '@nestjs/swagger';
+import { Public } from '../common/decorators/public.decorator';
 import { CertificatesService } from './certificates.service';
 import { CreateCertificateDto } from './dto/create-certificate.dto';
 import { UpdateCertificateDto } from './dto/update-certificate.dto';
@@ -36,7 +41,10 @@ interface AuthRequest {
 @ApiBearerAuth()
 @Controller('certificates')
 export class CertificatesController {
-  constructor(private readonly certificatesService: CertificatesService) {}
+  constructor(
+    private readonly certificatesService: CertificatesService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   /**
    * POST /certificates
@@ -141,6 +149,33 @@ export class CertificatesController {
   @ApiResponse({ status: 200, description: 'Metadados actualizados' })
   reextract(@Req() req: AuthRequest, @Param('id') id: string) {
     return this.certificatesService.reextract(req.user.userId, id);
+  }
+
+  /**
+   * GET /certificates/job/:id
+   * Consultar estado de um job no BullMQ
+   */
+  @Public()
+  @Get('job/:id')
+  @ApiOperation({ summary: 'Consultar estado do processamento de PDF' })
+  @ApiResponse({ status: 200, description: 'Estado do job (queued, processing, completed, failed)' })
+  getJobStatus(@Param('id') id: string) {
+    return this.certificatesService.getJobStatus(id);
+  }
+
+  /**
+   * GET /certificates/job/:id/stream
+   * Stream de eventos via SSE para um job específico
+   */
+  @Public()
+  @Sse('job/:id/stream')
+  @ApiOperation({ summary: 'Subscrever updates em tempo real do processamento do PDF' })
+  streamJobStatus(@Param('id') id: string): Observable<MessageEvent> {
+    return fromEvent(this.eventEmitter, `job.${id}.status`).pipe(
+      map((data: any) => ({
+        data: data,
+      })),
+    );
   }
 
   /**

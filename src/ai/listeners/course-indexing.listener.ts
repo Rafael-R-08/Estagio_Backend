@@ -29,16 +29,4 @@ export class CourseIndexingListener {
       this.logger.error(`Erro ao processar event course.batch_created: ${error.message}`);
     }
   }
-
-  @OnEvent('softinsa_learning.created')
-  async handleSoftinsaLearningCreated(event: CourseCreatedEvent) {
-    this.logger.debug(`Evento 'softinsa_learning.created' recebido para: ${event.courseId}`);
-    try {
-      // Garante que o source está correto para Softinsa
-      const slEvent = { ...event, source: 'SOFTINSA_LEARNING' as any };
-      await this.indexingService.indexCourse(slEvent);
-    } catch (error) {
-      this.logger.error(`Erro ao processar event softinsa_learning.created: ${error.message}`);
-    }
-  }
 }

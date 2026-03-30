@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/services/ai.service';
+import { EmbeddingService } from '../ai/services/embedding.service';
 import { SearchQueryDto } from './dto/search-query.dto';
 import { CourseResult, IPlatformAdapter } from './interfaces/platform-adapter.interface';
 import { MicrosoftLearnAdapter } from './adapters/microsoft-learn.adapter';
@@ -10,7 +11,6 @@ import { AcademiaPortugalDigitalAdapter } from './adapters/academia-portugal-dig
 import { UdemyAdapter } from './adapters/udemy.adapter';
 import { TrailheadAdapter } from './adapters/trailhead.adapter';
 import { IbmSkillsBuildAdapter } from './adapters/ibm-skillsbuild.adapter';
-import { SoftinsaLearningAdapter } from './adapters/softinsa-learning.adapter';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CourseBatchCreatedEvent, CourseCreatedEvent } from '../ai/events/course-indexing.event';
 import { ChunkSource } from '@prisma/client';
@@ -30,6 +30,7 @@ export class SearchService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
+    private readonly embeddingService: EmbeddingService,
     private readonly http: HttpService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -49,7 +50,7 @@ export class SearchService {
    * Pesquisa principal unificando múltiplas plataformas e ranking semântico
    */
   async search(dto: SearchQueryDto, userId?: string): Promise<SearchResponse> {
-    const { q, limit = 10, platforms: platformNames, isFree, minRating } = dto;
+    const { q, limit = 10, platforms: platformNames, isFree, minRating, minRelevance } = dto;
 
     const platforms = await this.prisma.learningPlatform.findMany({
       where: {
@@ -66,13 +67,13 @@ export class SearchService {
     const platformIds = platforms.map((p) => p.id);
 
     // 1. Tentar cache da DB
-    let results = await this.searchFromCache(q, platformIds, limit * 2, isFree, minRating);
+    let results = await this.searchFromCache(q, platformIds, limit * 2, isFree, minRating, minRelevance);
     
     if (results.length === 0) {
       // 2. Cache miss -> Busca externa em paralelo
       const adapters = platforms.map((p) => this.createAdapter(p)).filter(Boolean) as IPlatformAdapter[];
       const rawResults = await Promise.allSettled(
-        adapters.map((adapter) => adapter.search(q, limit, { isFree, minRating })),
+        adapters.map((adapter) => adapter.search(q, limit, { isFree, minRating, minRelevance })),
       );
 
       const allCourses: CourseResult[] = rawResults.flatMap((r) =>
@@ -92,11 +93,14 @@ export class SearchService {
       results = allCourses;
     }
 
-    // 4. Ranking Semântico com cache de embeddings
-    let rankedResults = results;
+    // 4. Integrar Ratings Internos (Softinsa)
+    const enrichedResults = await this.enrichWithInternalStats(results);
+
+    // 5. Ranking Semântico com cache de embeddings
+    let rankedResults = enrichedResults;
     let semanticRankingStatus = false;
     try {
-      rankedResults = await this.semanticRank(q, results);
+      rankedResults = await this.semanticRank(q, enrichedResults);
       semanticRankingStatus = true;
     } catch (error) {
       this.logger.warn(`Ranking semântico falhou: ${error.message}`);
@@ -118,7 +122,7 @@ export class SearchService {
     if (courses.length === 0) return courses;
 
     try {
-      const queryEmbedding = await this.aiService.embed(query);
+      const queryEmbedding = await this.embeddingService.embed(query);
 
       const courseEmbeddings = await Promise.all(
         courses.map(async (c) => {
@@ -146,7 +150,7 @@ export class SearchService {
       const cached = await this.aiService.cache.get(cacheKey);
       if (cached) return JSON.parse(cached);
 
-      const embedding = await this.aiService.embed(text);
+      const embedding = await this.embeddingService.embed(text);
       await this.aiService.cache.set(cacheKey, JSON.stringify(embedding), ttl);
       return embedding;
     } catch {
@@ -165,7 +169,7 @@ export class SearchService {
     return dot / (Math.sqrt(normA) * Math.sqrt(normB) || 1);
   }
 
-  private async searchFromCache(query: string, platformIds: string[], limit: number, isFree?: boolean, minRating?: number): Promise<CourseResult[]> {
+  private async searchFromCache(query: string, platformIds: string[], limit: number, isFree?: boolean, minRating?: number, minRelevance?: number): Promise<CourseResult[]> {
     const terms = query.split(/\s+/).filter(Boolean);
     if (terms.length === 0) return [];
 
@@ -202,6 +206,31 @@ export class SearchService {
       platformId: c.platformId,
       platformName: c.platform.name,
     }));
+  }
+
+  /**
+   * Agrega estatísticas internas (rating e relevância) baseadas no histórico dos utilizadores
+   */
+  private async enrichWithInternalStats(courses: CourseResult[]): Promise<CourseResult[]> {
+    if (courses.length === 0) return courses;
+
+    const urls = courses.map(c => c.url);
+    const stats = await this.prisma.trainingRecord.groupBy({
+      by: ['url'],
+      where: { url: { in: urls } },
+      _avg: { rating: true, relevance: true },
+    });
+
+    const statsMap = new Map(stats.map(s => [s.url, s._avg]));
+
+    return courses.map(c => {
+      const s = statsMap.get(c.url);
+      return {
+        ...c,
+        internalRating: s?.rating ? Math.round(s.rating * 10) / 10 : undefined,
+        internalRelevance: s?.relevance ? Math.round(s.relevance * 10) / 10 : undefined,
+      };
+    });
   }
 
   private async cacheResults(courses: CourseResult[], platforms: any[]): Promise<{ newCourses: any[] }> {
@@ -288,7 +317,6 @@ export class SearchService {
       case 'Udemy': return new UdemyAdapter(this.http, cfg);
       case 'Trailhead': return new TrailheadAdapter(this.http, cfg);
       case 'IBM SkillsBuild': return new IbmSkillsBuildAdapter(this.http, cfg);
-      case 'Softinsa Everyday Learning': return new SoftinsaLearningAdapter(this.prisma, cfg as any);
       default: return null;
     }
   }

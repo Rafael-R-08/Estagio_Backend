@@ -1,152 +1,189 @@
-// src/ai/services/ai.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
-import { CacheService } from '../../cache/cache.service.js';
+import Groq from 'groq-sdk';
+import { CacheService } from '../../cache/cache.service';
 import * as crypto from 'crypto';
+import * as pdf from 'pdf-parse';
+import { Observable } from 'rxjs';
 
 export interface GenerateOptions {
   maxTokens?: number;
   temperature?: number;
+  topP?: number;
   userId?: string;
+  language?: 'pt' | 'en';
   cacheTtl?: number;
   noCache?: boolean;
   noRetry?: boolean;
   systemPrompt?: string;
+  responseFormat?: 'text' | 'json_object';
 }
 
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  private readonly client: OpenAI;
+  private readonly groq: Groq;
+  private readonly DEFAULT_MODEL = 'llama-3.3-70b-versatile';
 
   constructor(
     private readonly configService: ConfigService,
     public readonly cache: CacheService,
   ) {
-    const githubConfig = this.configService.get('githubModels');
-    this.client = new OpenAI({
-      apiKey: githubConfig?.token || process.env.GITHUB_TOKEN,
-      baseURL: githubConfig?.endpoint || 'https://models.inference.ai.azure.com',
-    });
+    const apiKey = this.configService.get('GROQ_API_KEY') || process.env.GROQ_API_KEY;
+    this.groq = new Groq({ apiKey });
   }
 
   /**
-   * Exponential backoff helper
+   * Exponential backoff helper adaptado para Groq (429/503)
    */
   private async withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
     let lastError: any;
-    
     for (let i = 0; i <= maxRetries; i++) {
       try {
         return await fn();
       } catch (error: any) {
         lastError = error;
-        
-        // Se não for 429 ou se esgotamos as tentativas, lança o erro
-        if (error.status !== 429 || i === maxRetries) {
-          throw error;
-        }
+        const status = error.status || error.error?.code;
+        if ((status !== 429 && status !== 503) || i === maxRetries) throw error;
 
-        // Se for 429, espera e tenta novamente
-        const retryAfter = error.headers?.['retry-after'];
-        const delay = retryAfter 
-          ? parseInt(retryAfter) * 1000 
-          : Math.pow(2, i) * 1000; // 1s, 2s, 4s
-
-        this.logger.warn(`Rate limit (429) detectado. Retry ${i + 1}/${maxRetries} em ${delay}ms...`);
+        const delay = Math.pow(2, i) * 2000 + Math.random() * 1000;
+        this.logger.warn(`Groq API Error (${status}). Retrying in ${Math.round(delay/1000)}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
-    
     throw lastError;
   }
 
   /**
-   * Gera texto usando LLM com opções dinâmicas e cache seguro (SHA-256 + userId)
+   * Gera texto usando Llama 3.3 via Groq
    */
   async generateText(prompt: string, options: GenerateOptions = {}, model?: string): Promise<string> {
-    const defaultModel = this.configService.get('githubModels.model') || 'gpt-4o';
-    const selectedModel = model || defaultModel;
-    const effectiveSystemPrompt = options.systemPrompt || "És um assistente especializado na Softinsa. Responde sempre em português de Portugal.";
+    const selectedModel = model || this.DEFAULT_MODEL;
     
-    // Cache key segura: SHA-256 de (userId + systemPrompt + prompt)
+    // Injeção dinâmica de idioma
+    const langLabel = options.language === 'en' ? 'English' : 'Portuguese (Portugal)';
+    let systemPrompt = options.systemPrompt || `Tu és o assistente de IA da Softinsa. Responde sempre em ${langLabel}.`;
+    
+    if (options.language) {
+      systemPrompt += `\nCRITICAL: Respond STRICTLY in ${langLabel}.`;
+    }
+
     const userId = options.userId || 'anonymous';
-    const hash = crypto.createHash('sha256')
-      .update(`${userId}:${effectiveSystemPrompt}:${prompt}`)
-      .digest('hex');
-    const cacheKey = `ai:${selectedModel}:${hash}`;
+    const hash = crypto.createHash('sha256').update(`${userId}:${systemPrompt}:${prompt}`).digest('hex');
+    const cacheKey = `groq:v2:${selectedModel}:${hash}`; // v2 para invalidar cache antigo
 
     if (!options.noCache) {
       const cached = await this.cache.get(cacheKey);
-      if (cached) {
-        this.logger.debug(`Cache hit: ${cacheKey}`);
-        return cached;
-      }
+      if (cached) return cached;
     }
-
-    const result = await this.withRetry(() => this.callApi(selectedModel, effectiveSystemPrompt, prompt, options));
-    
-    if (!options.noCache) {
-      await this.cache.set(cacheKey, result, options.cacheTtl || 3600);
-    }
-    
-    return result;
-  }
-
-  private async callApi(model: string, systemPrompt: string, userPrompt: string, options: GenerateOptions): Promise<string> {
-    const maxTokens = options.maxTokens || 800;
-    const temperature = options.temperature ?? 0.3;
 
     try {
-      const response = await this.client.chat.completions.create({
-        model: model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: temperature,
-        max_tokens: maxTokens,
+      const startTime = Date.now();
+      const result = await this.withRetry(async () => {
+        let userPrompt = prompt;
+        if (options.responseFormat === 'json_object' && !prompt.toLowerCase().includes('json')) {
+          userPrompt += ' (Respond ONLY in JSON format)';
+        }
+
+        const response = await this.groq.chat.completions.create({
+          model: selectedModel,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: options.temperature ?? 0.1,
+          top_p: options.topP ?? 0.9,
+          max_tokens: options.maxTokens ?? 1024,
+          response_format: options.responseFormat === 'json_object' ? { type: 'json_object' } : undefined,
+        });
+
+        const latency = Date.now() - startTime;
+        const usage = response.usage;
+        if (usage) {
+          const logPayload = {
+            message: 'Groq AI Execution',
+            model: selectedModel,
+            prompt_tokens: usage.prompt_tokens,
+            completion_tokens: usage.completion_tokens,
+            total_tokens: usage.total_tokens,
+            latency_ms: latency,
+            userId: userId,
+            lang: options.language,
+            type: options.responseFormat === 'json_object' ? 'structured' : 'text'
+          };
+          this.logger.log(logPayload);
+        }
+
+        return response.choices[0]?.message?.content || '';
       });
 
-      const content = response.choices[0].message.content || '';
-      if (response.choices[0].finish_reason === 'length') {
-        this.logger.warn(`Resposta truncada (${maxTokens} tokens). Modelo: ${model}`);
+      if (!options.noCache) {
+        await this.cache.set(cacheKey, result, options.cacheTtl || 3600);
       }
-
-      return content;
+      return result;
     } catch (error: any) {
-      this.logger.error(`Erro na API GitHub Models: ${error.message}`);
+      this.logger.error(`Erro na API Groq: ${error.message}`);
       throw error;
     }
   }
 
   /**
-   * Gera embedding com cache de 24h (SHA-256) e retry p/ 429
+   * Gera um stream de texto usando Groq para melhor UX (SSE)
    */
-  async embed(text: string, model?: string): Promise<number[]> {
-    const defaultModel = this.configService.get('githubModels.embedModel') || 'text-embedding-3-small';
-    const selectedModel = model || defaultModel;
+  generateStream(prompt: string, options: GenerateOptions = {}, model?: string): Observable<string> {
+    const selectedModel = model || this.DEFAULT_MODEL;
     
-    const hash = crypto.createHash('sha256').update(text).digest('hex');
-    const cacheKey = `embed:${selectedModel}:${hash}`;
+    // Injeção dinâmica de idioma
+    const langLabel = options.language === 'en' ? 'English' : 'Portuguese (Portugal)';
+    let systemPrompt = options.systemPrompt || `Tu és o assistente de IA da Softinsa. Responde sempre em ${langLabel}.`;
+    
+    if (options.language) {
+      systemPrompt += `\nCRITICAL: Respond STRICTLY in ${langLabel}.`;
+    }
 
-    const cached = await this.cache.get(cacheKey);
-    if (cached) return JSON.parse(cached);
-
-    return await this.withRetry(async () => {
-      try {
-        const response = await this.client.embeddings.create({
+    return new Observable(observer => {
+      this.withRetry(async () => {
+        const stream = await this.groq.chat.completions.create({
           model: selectedModel,
-          input: text,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt }
+          ],
+          temperature: options.temperature ?? 0.6, // Valor sugerido para o Chat
+          top_p: options.topP ?? 0.9,
+          max_tokens: options.maxTokens ?? 1024,
+          stream: true,
         });
-        const embedding = response.data[0].embedding;
-        await this.cache.set(cacheKey, JSON.stringify(embedding), 86400); // 24h
-        return embedding;
-      } catch (error: any) {
-        this.logger.error(`Erro no embedding: ${error.message}`);
-        throw error;
-      }
+
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content || '';
+          if (content) {
+            observer.next(content);
+          }
+        }
+        
+        observer.complete();
+      }).catch(err => {
+        this.logger.error(`Erro no stream Groq: ${err.message}`);
+        observer.error(err);
+      });
     });
+  }
+
+  /**
+   * Extração de texto genérica (legado adaptado para Llama 3.3)
+   */
+  async analyzeDocument(buffer: Buffer, prompt: string, options: GenerateOptions = {}): Promise<string> {
+    try {
+      const pdfParse = require('pdf-parse');
+      const data = await pdfParse(buffer);
+      const text = data.text.substring(0, 30000); 
+      
+      const enrichedPrompt = `DOCUMENT CONTENT:\n${text}\n\nINSTRUCTION: ${prompt}`;
+      return this.generateText(enrichedPrompt, { ...options, temperature: 0.1 });
+    } catch (error: any) {
+      this.logger.error(`Falha na extração de texto do PDF: ${error.message}`);
+      throw error;
+    }
   }
 }

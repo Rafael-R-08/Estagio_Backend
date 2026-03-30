@@ -9,7 +9,6 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { UpdateProfileDto } from './dto/update-profile.dto';
-import { UpdateUserSettingsDto } from './dto/update-user-settings.dto';
 import { OnboardingDto } from './dto/onboarding.dto';
 
 interface AuthRequest extends Request {
@@ -62,7 +61,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Concluir onboarding do utilizador' })
   @ApiResponse({ status: 200, description: 'Utilizador atualizado' })
   onboarding(@Req() req: AuthRequest, @Body() dto: OnboardingDto) {
-    return this.auth.onboarding(req.user.userId, dto.serviceLine);
+    return this.auth.onboarding(req.user.userId, dto);
   }
 
   @Public()
@@ -116,7 +115,7 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Atualizar definições do utilizador autenticado' })
   @ApiResponse({ status: 200, description: 'Definições atualizadas' })
-  updateMySettings(@Req() req: AuthRequest, @Body() dto: UpdateUserSettingsDto) {
+  updateMySettings(@Req() req: AuthRequest, @Body() dto: any) {
     return this.auth.upsertSettings(req.user.userId, dto);
   }
 }

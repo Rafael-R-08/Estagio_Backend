@@ -54,4 +54,12 @@ export class SearchQueryDto {
   @Min(0)
   @Max(5)
   minRating?: number;
+
+  @ApiProperty({ description: 'Relevância mínima suportada (0 a 5)', required: false })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(5)
+  minRelevance?: number;
 }

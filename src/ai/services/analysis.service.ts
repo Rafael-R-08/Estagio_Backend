@@ -1,14 +1,14 @@
 // src/ai/services/analysis.service.ts
 import { Injectable, Logger } from '@nestjs/common';
-import { AiService } from './ai.service.js';
-import { EmbeddingService } from './embedding.service.js';
+import { AiService } from './ai.service';
+import { EmbeddingService } from './embedding.service';
 import { ChunkSource } from '@prisma/client';
 import { 
   buildSummaryPrompt, 
   buildTopicsPrompt, 
   buildClassificationPrompt, 
   buildSimplifyPrompt 
-} from '../templates/analysis.template.js';
+} from '../templates/analysis.template';
 
 export interface CourseClassification {
   type: string;

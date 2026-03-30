@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AiService, GenerateOptions } from './ai.service.js';
-import { EmbeddingService, SearchResult } from './embedding.service.js';
+import { AiService, GenerateOptions } from './ai.service';
+import { EmbeddingService, SearchResult } from './embedding.service';
 import { ChunkSource } from '@prisma/client';
-import { buildRagPrompt } from '../templates/rag.template.js';
-import { PrismaService } from '../../prisma/prisma.service.js';
+import { buildRagPrompt } from '../templates/rag.template';
+import { PrismaService } from '../../prisma/prisma.service';
+import { Observable } from 'rxjs';
 
 export interface RagQueryOptions {
   topK?: number;
@@ -11,11 +12,13 @@ export interface RagQueryOptions {
   systemPrompt?: string;
   generateOptions?: GenerateOptions;
   sourceFilter?: ChunkSource[];
+  model?: string;
 }
 
 export interface RagResponse {
   query: string;
   answer: string;
+  qualityScore: number; // Avg similarity of chunks
   sources: Array<{
     id: string;
     content: string;
@@ -27,6 +30,7 @@ export interface RagResponse {
 @Injectable()
 export class RagService {
   private readonly logger = new Logger(RagService.name);
+  private readonly SIMILARITY_THRESHOLD = 0.65;
 
   constructor(
     private aiService: AiService,
@@ -35,93 +39,50 @@ export class RagService {
   ) {}
 
   /**
-   * Pipeline RAG: Pesquisa -> Contexto -> Geração
+   * Executa uma consulta RAG completa (Busca + Contexto + Geração)
    */
   async query(question: string, options: RagQueryOptions = {}): Promise<RagResponse> {
     const topK = options.topK || 5;
-    const maxContextLength = options.maxContextLength || 3000;
-    
-    this.logger.log(`RAG query: "${question}" (topK=${topK}, sources=${options.sourceFilter?.join(',') || 'ALL'})`);
+    const maxContextLength = options.maxContextLength || 3500;
+    const userId = options.generateOptions?.userId;
 
-    // 1. Pesquisa semântica
-    const chunks = await this.embeddingService.searchSimilar(
+    const language = await this.getUserLanguage(userId);
+    
+    this.logger.log(`RAG query [${language}]: "${question}" (topK=${topK})`);
+
+    // 1. Busca Semântica
+    const allChunks = await this.embeddingService.searchSimilar(
       question, 
       topK, 
       options.sourceFilter
     );
 
-    if (chunks.length === 0) {
-      this.logger.warn(`Zero chunks encontrados para a query: ${question}`);
-      const answer = await this.aiService.generateText(question, { 
-        ...options.generateOptions,
-        userId: options.generateOptions?.userId 
-      });
-      return { query: question, answer, sources: [] };
-    }
-
-    // 2. Construção de contexto
-    let context = '';
-    const includedChunks: SearchResult[] = [];
+    // 2. Filtro de Relevância (similarity > 0.65)
+    const chunks = allChunks.filter(c => c.similarity >= this.SIMILARITY_THRESHOLD);
     
-    // 2.1 Contexto do Utilizador (se houver userId)
-    const userId = options.generateOptions?.userId;
-    if (userId) {
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        include: { 
-          preferences: true,
-          certificates: true,
-          trainings: {
-            take: 10,
-            orderBy: { createdAt: 'desc' }
-          }
-        }
-      });
-      if (user) {
-        const certs = user.certificates.map(c => `- ${c.courseName || 'Certificado'} (${c.provider || 'N/A'})`).join('\n') || 'Nenhuma';
-        const recentTrainings = user.trainings.map(t => `- ${t.title} (${t.status})`).join('\n') || 'Nenhum';
-        
-        context += `PERFIL E HISTÓRICO DO UTILIZADOR:
-- Nome: ${user.name || 'N/A'}
-- Service Line: ${user.serviceLine || 'N/A'}
-- Tech Stack: ${user.techStack?.join(', ') || 'N/A'}
-- Interesses: ${user.interests?.join(', ') || 'N/A'}
-- Objetivos: ${user.preferences?.learningGoals?.join(', ') || 'N/A'}
+    // 3. RAG Quality Score (Métrica de Produção)
+    const qualityScore = chunks.length > 0 
+      ? chunks.reduce((acc, c) => acc + c.similarity, 0) / chunks.length 
+      : 0;
 
-CERTIFICAÇÕES ATUAIS:
-${certs}
+    // 4. Construir Contexto (Chunks + Perfil)
+    const { context, includedChunks } = await this.buildContext(chunks, userId, maxContextLength, language);
 
-FORMAÇÕES RECENTES:
-${recentTrainings}
----
-`;
-      }
-    }
-
-    for (const chunk of chunks) {
-      const entry = `[Fonte: ${chunk.source}] ${chunk.content}\n\n`;
-      if ((context + entry).length > maxContextLength) break;
-      context += entry;
-      includedChunks.push(chunk);
-    }
-
-    // 3. Montar Prompt
-    const userPrompt = buildRagPrompt(context, question);
-    const systemPromptOption: Record<string, any> = {};
-    if (options.systemPrompt) {
-      systemPromptOption.systemPrompt = options.systemPrompt;
-    }
-
-    // 4. Gerar resposta
+    // 5. Gerar Resposta com Llama 3.3
+    const userPrompt = buildRagPrompt(context, question, language);
+    
     const answer = await this.aiService.generateText(userPrompt, {
       ...options.generateOptions,
-      ...systemPromptOption,
-      maxTokens: options.generateOptions?.maxTokens || 1000,
-    });
+      language: language as 'pt' | 'en',
+      systemPrompt: options.systemPrompt,
+      maxTokens: options.generateOptions?.maxTokens || 1500,
+      temperature: options.generateOptions?.temperature || 0.1,
+    }, options.model);
 
     return {
       query: question,
       answer,
+      qualityScore,
       sources: includedChunks.map(c => ({
         id: c.id,
         content: c.content,
@@ -130,14 +91,79 @@ ${recentTrainings}
       }))
     };
   }
+
   /**
-   * Gera uma mensagem de boas-vindas personalizada
+   * Versão Stream da consulta RAG (para Chat SSE)
    */
+  async queryStream(question: string, options: RagQueryOptions = {}): Promise<Observable<string>> {
+    const topK = options.topK || 5;
+    const maxContextLength = options.maxContextLength || 3500;
+    const userId = options.generateOptions?.userId;
+
+    const language = await this.getUserLanguage(userId);
+    
+    const allChunks = await this.embeddingService.searchSimilar(question, topK, options.sourceFilter);
+    const chunks = allChunks.filter(c => c.similarity >= this.SIMILARITY_THRESHOLD);
+    
+    const { context } = await this.buildContext(chunks, userId, maxContextLength, language);
+    const userPrompt = buildRagPrompt(context, question, language);
+
+    return this.aiService.generateStream(userPrompt, {
+      ...options.generateOptions,
+      language: language as 'pt' | 'en',
+      systemPrompt: options.systemPrompt,
+      temperature: options.generateOptions?.temperature || 0.6,
+    }, options.model);
+  }
+
+  private async getUserLanguage(userId?: string): Promise<string> {
+    if (!userId) return 'pt';
+    const settings = await this.prisma.userSettings.findUnique({ where: { userId } });
+    return settings?.uiLanguage || 'pt';
+  }
+
+  private async buildContext(chunks: SearchResult[], userId: string | undefined, maxLength: number, lang: string) {
+    let context = '';
+    const includedChunks: SearchResult[] = [];
+    const isEn = lang === 'en';
+
+    if (userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { 
+          certificates: true,
+          trainings: { take: 5, orderBy: { createdAt: 'desc' } },
+          skills: true
+        }
+      });
+
+      if (user) {
+        const certs = user.certificates.map(c => `- ${c.provider}: ${c.courseName}`).join(', ');
+        const skills = user.skills?.map(s => `${s.skillName}(${s.level})`).join(', ');
+        
+        context += `${isEn ? 'USER PROFILE' : 'PERFIL'}: Position: ${user.userFunction}, Skills: ${skills}, Interests: ${user.interests?.join(',')}, Certs: ${certs}\n---\n`;
+      }
+    }
+
+    // Injeção de Chunks compactada
+    for (const chunk of chunks) {
+      const entry = `[S:${chunk.source}] ${chunk.content}\n`;
+      if ((context + entry).length > maxLength) break;
+      context += entry;
+      includedChunks.push(chunk);
+    }
+
+    return { context, includedChunks };
+  }
+
   async getWelcomeMessage(userId?: string): Promise<string> {
+    const lang = await this.getUserLanguage(userId);
     if (userId) {
       const user = await this.prisma.user.findUnique({ where: { id: userId } });
-      return `Olá, ${user?.name || 'User'}! 👋 Sou o teu assistente de carreira na Softinsa. Estou aqui para te ajudar a encontrar as melhores formações, esclarecer dúvidas sobre certificações e planear o teu progresso. Em que posso ser útil hoje?`;
+      return lang === 'en' 
+        ? `Hi, ${user?.name || 'User'}! 👋 I'm your Career Assistant. How can I help?`
+        : `Olá, ${user?.name || 'User'}! 👋 Sou o teu Assistente de Carreira. Como posso ajudar?`;
     }
-    return `Olá! 👋 Sou o Assistente de Carreira da Softinsa. Posso ajudar-te a explorar o catálogo de cursos, sugerir certificações e responder a dúvidas sobre o teu desenvolvimento profissional. Como posso ajudar?`;
+    return lang === 'en' ? "Hi! 👋 How can I help with your career?" : "Olá! 👋 Como posso ajudar na tua carreira?";
   }
 }

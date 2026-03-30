@@ -30,6 +30,8 @@ export class SlManagerService {
         name: true,
         email: true,
         serviceLine: true,
+        userFunction: true,
+        experienceLevel: true,
         _count: {
           select: {
             trainings: { where: { status: 'completed' } },
@@ -45,8 +47,11 @@ export class SlManagerService {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: {
-        trainings: true,
+        trainings: {
+          include: { platform: { select: { name: true } } }
+        },
         certificates: true,
+        skills: true,
       },
     });
 
@@ -61,8 +66,11 @@ export class SlManagerService {
     return {
       userId: user.id,
       name: user.name,
+      userFunction: user.userFunction,
+      experienceLevel: user.experienceLevel,
       trainings: user.trainings,
       certificates: user.certificates,
+      skills: user.skills,
     };
   }
 }

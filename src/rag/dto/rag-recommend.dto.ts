@@ -13,7 +13,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 class UserProfileDto {
   @ApiPropertyOptional({
     description: 'Stack tecnológica do utilizador',
-    example: ['Node.js', 'React'],
+    example: ['Node', 'React'],
   })
   @IsOptional()
   @IsArray()

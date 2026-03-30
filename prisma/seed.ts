@@ -14,18 +14,11 @@ if (!connectionString) {
 
 const pool = new Pool({ connectionString });
 const adapter = new PrismaPg(pool);
-
 const prisma = new PrismaClient({ adapter });
 
-// -------------------------------------------------------------
-// SEED
-// -------------------------------------------------------------
 async function main() {
   console.log('🚀 Iniciando seed...');
 
-  // -------------------------------------------------------------
-  // 1) Criar plataformas (Udemy, Microsoft Learn, Trailhead)
-  // -------------------------------------------------------------
   const platforms = await Promise.all([
     prisma.learningPlatform.upsert({
       where: { name: 'Udemy' },
@@ -33,72 +26,17 @@ async function main() {
       create: {
         name: 'Udemy',
         type: 'Tech',
-        apiKeyRequired: false,
         enabled: true,
         searchEnabled: true,
         config: {},
       },
     }),
-
     prisma.learningPlatform.upsert({
       where: { name: 'Microsoft Learn' },
       update: {},
       create: {
         name: 'Microsoft Learn',
         type: 'Cloud',
-        apiKeyRequired: false,
-        enabled: true,
-        searchEnabled: true,
-        config: {},
-      },
-    }),
-
-    prisma.learningPlatform.upsert({
-      where: { name: 'Trailhead' },
-      update: {},
-      create: {
-        name: 'Trailhead',
-        type: 'CRM',
-        apiKeyRequired: false,
-        enabled: true,
-        searchEnabled: true,
-        config: {},
-      },
-    }),
-
-    prisma.learningPlatform.upsert({
-      where: { name: 'Academia Portugal Digital' },
-      update: {},
-      create: {
-        name: 'Academia Portugal Digital',
-        type: 'Digital Competencies',
-        apiKeyRequired: false,
-        enabled: true,
-        searchEnabled: true,
-        config: {},
-      },
-    }),
-
-    prisma.learningPlatform.upsert({
-      where: { name: 'IBM SkillsBuild' },
-      update: {},
-      create: {
-        name: 'IBM SkillsBuild',
-        type: 'Tech',
-        apiKeyRequired: false,
-        enabled: true,
-        searchEnabled: true,
-        config: {},
-      },
-    }),
-
-    prisma.learningPlatform.upsert({
-      where: { name: 'Softinsa Everyday Learning' },
-      update: {},
-      create: {
-        name: 'Softinsa Everyday Learning',
-        type: 'Internal',
-        apiKeyRequired: false,
         enabled: true,
         searchEnabled: true,
         config: {},
@@ -108,231 +46,108 @@ async function main() {
 
   const udemy = platforms[0];
   const msLearn = platforms[1];
-  const academiapt = platforms[3];
 
-  // -------------------------------------------------------------
-  // 2) Criar ADMIN
-  // -------------------------------------------------------------
-  const adminEmail = 'admin@admin.com';
-  const adminPass = 'Admin1234';
-  const adminHash = await bcrypt.hash(adminPass, 10);
-
-  const admin = await prisma.user.upsert({
-    where: { email: adminEmail },
+  const userHash = await bcrypt.hash('password123', 10);
+  const user = await prisma.user.upsert({
+    where: { email: 'user@example.com' },
     update: {},
     create: {
-      email: adminEmail,
-      passwordHash: adminHash,
-      name: 'Administrator',
-      role: Role.ADMIN,
-      experienceLevel: 'senior',
-      techStack: ['Node.js', 'Prisma'],
-      interests: ['Backend', 'APIs'],
-      jobTitle: 'Platform Administrator',
-      department: 'IT',
-      location: 'escritorio',
-      preferredLanguage: 'PT',
+      email: 'user@example.com',
+      passwordHash: userHash,
+      name: 'User Example',
+      role: Role.USER,
       serviceLine: ServiceLine.HYBRID_CLOUD,
       onboardingDone: true,
-    },
-  });
-
-  await prisma.userPreferences.upsert({
-    where: { userId: admin.id },
-    update: {},
-    create: {
-      userId: admin.id,
-      enabledPlatforms: platforms.map((p) => p.id),
-      learningGoals: ['Gerir Plataforma', 'Monitorizar Treinos'],
-    },
-  });
-
-  // -------------------------------------------------------------
-  // 3) Create Service Line Managers and Users
-  // -------------------------------------------------------------
-  const serviceLines = [
-    ServiceLine.HYBRID_CLOUD,
-    ServiceLine.DATA,
-    ServiceLine.BUSINESS_APPLICATIONS,
-    ServiceLine.APPLICATION_OPERATIONS,
-    ServiceLine.SOURCING_TALENT_MANAGEMENT,
-  ];
-
-  let mainSeedUser: any = null;
-
-  for (const sl of serviceLines) {
-    // 1 Manager
-    const managerEmail = `manager.${sl.toLowerCase()}@softinsa.pt`;
-    const managerHash = await bcrypt.hash('Manager1234', 10);
-    
-    await prisma.user.upsert({
-      where: { email: managerEmail },
-      update: {},
-      create: {
-        email: managerEmail,
-        passwordHash: managerHash,
-        name: `Manager of ${sl}`,
-        role: Role.SERVICE_LINE_MANAGER,
-        serviceLine: sl,
-        managedLineId: sl,
-        onboardingDone: true,
-        experienceLevel: 'senior',
-        jobTitle: 'Service Line Manager',
-        department: 'Management',
-        location: 'hibrido',
-        preferredLanguage: 'EN',
-      }
-    });
-
-    // 2 Users
-    for (let i = 1; i <= 2; i++) {
-        const isMainUser = sl === ServiceLine.HYBRID_CLOUD && i === 1;
-        const userEmail = isMainUser ? 'user@example.com' : `user${i}.${sl.toLowerCase()}@softinsa.pt`;
-        const userHash = await bcrypt.hash('password123', 10);
-        
-        const createdUser = await prisma.user.upsert({
-            where: { email: userEmail },
-            update: {
-                serviceLine: sl,
-                onboardingDone: true,
-            },
-            create: {
-                email: userEmail,
-                passwordHash: userHash,
-                name: isMainUser ? 'User Example' : `User ${i} of ${sl}`,
-                role: Role.USER,
-                serviceLine: sl,
-                onboardingDone: true,
-                experienceLevel: 'mid',
-                techStack: ['React', 'Node.js', 'TypeScript', 'PostgreSQL'],
-                interests: ['Cloud', 'DevOps', 'Backend', 'APIs'],
-                jobTitle: isMainUser ? 'Full Stack Developer' : 'Consultant',
-                department: isMainUser ? 'Engineering' : 'Consulting',
-                location: 'hibrido',
-                preferredLanguage: 'PT',
-            }
-        });
-
-        if (isMainUser) {
-            mainSeedUser = createdUser;
-            await prisma.userPreferences.upsert({
-              where: { userId: createdUser.id },
-              update: {
-                enabledPlatforms: [udemy.id, msLearn.id, academiapt.id],
-                learningGoals: [
-                  'Aprender Azure',
-                  'Melhorar skills em DevOps',
-                  'Aprofundar NestJS',
-                ],
-              },
-              create: {
-                userId: createdUser.id,
-                enabledPlatforms: [udemy.id, msLearn.id, academiapt.id],
-                learningGoals: [
-                  'Aprender Azure',
-                  'Melhorar skills em DevOps',
-                  'Aprofundar NestJS',
-                ],
-              },
-            });
-        }
+      experienceLevel: 'mid',
+      interests: ['Cloud', 'DevOps', 'Backend'],
+      userFunction: 'Full Stack Developer',
     }
-  }
+  });
 
-  const user = mainSeedUser!;
+  // Skills
+  await prisma.userSkill.deleteMany({ where: { userId: user.id } });
+  await prisma.userSkill.createMany({
+    data: [
+      { userId: user.id, skillName: 'Node.js', yearsOfExperience: 3, level: 'advanced' },
+      { userId: user.id, skillName: 'React', yearsOfExperience: 2, level: 'intermediate' },
+      { userId: user.id, skillName: 'TypeScript', yearsOfExperience: 2, level: 'advanced' },
+    ]
+  });
 
-  // -------------------------------------------------------------
-  // 4) Criar vários Training Records para o user
-  // -------------------------------------------------------------
-  // Limpa treinos anteriores para evitar duplicados no re-seed
-  await prisma.trainingRecord.deleteMany({ where: { userId: user.id } });
-
-  const trainings = await Promise.all([
-    prisma.trainingRecord.create({
-      data: {
-        userId: user.id,
-        platformId: udemy.id,
-        title: 'Node.js Best Practices',
-        url: 'https://www.udemy.com/course/nodejs-best-practices/',
-        status: TrainingStatus.completed,
-        notes: 'Excelente curso, muito prático',
-        rating: 5,
-        durationHours: 12,
-        completedAt: new Date('2025-12-15'),
-      },
-    }),
-    prisma.trainingRecord.create({
-      data: {
-        userId: user.id,
-        platformId: msLearn.id,
-        title: 'Introduction to Azure Cloud Services',
-        url: 'https://learn.microsoft.com/azure/intro',
-        status: TrainingStatus.ongoing,
-        notes: 'A meio do curso',
-        rating: 4,
-        durationHours: 8,
-        startedAt: new Date('2026-01-10'),
-      },
-    }),
-    prisma.trainingRecord.create({
-      data: {
-        userId: user.id,
-        platformId: udemy.id,
-        title: 'Docker & Kubernetes: The Complete Guide',
-        url: 'https://www.udemy.com/course/docker-and-kubernetes/',
-        status: TrainingStatus.priority,
-        notes: 'Quero terminar este mês',
-        durationHours: 20,
-      },
-    }),
-    prisma.trainingRecord.create({
-      data: {
-        userId: user.id,
-        platformId: msLearn.id,
-        title: 'TypeScript para Developers',
-        url: 'https://learn.microsoft.com/typescript',
-        status: TrainingStatus.completed,
-        rating: 5,
-        durationHours: 6,
-        completedAt: new Date('2025-11-20'),
-      },
-    }),
-    prisma.trainingRecord.create({
-      data: {
-        userId: user.id,
-        platformId: udemy.id,
-        title: 'PostgreSQL Advanced Queries',
-        url: 'https://www.udemy.com/course/postgresql-advanced/',
-        status: TrainingStatus.later,
-        durationHours: 10,
-      },
-    }),
-  ]);
-
-  // -------------------------------------------------------------
-  // 5) Criar certificado para o treino concluído
-  // -------------------------------------------------------------
-  await prisma.certificate.upsert({
-    where: { trainingId: trainings[0].id },
-    update: {},
+  // 0) Utilizador para testar Onboarding (vazio)
+  await prisma.user.upsert({
+    where: { email: 'newuser@example.com' },
+    update: { onboardingDone: false },
     create: {
-      trainingId: trainings[0].id,
+      email: 'newuser@example.com',
+      passwordHash: userHash,
+      name: 'New User',
+      role: Role.USER,
+      onboardingDone: false,
+    }
+  });
+
+  // 1) Concluída
+  const t1 = await prisma.trainingRecord.create({
+    data: {
       userId: user.id,
-      fileUrl: 's3://bucket/certificates/nodejs-best-practices.pdf',
-      courseName: 'Node.js Best Practices',
-      provider: 'Udemy',
-      completionDate: new Date('2025-12-15'),
-      durationHours: 12,
-      extractedMetadata: { imported: true },
+      platformId: udemy.id,
+      title: 'Node.js Best Practices',
+      url: 'https://www.udemy.com/course/nodejs-best-practices/',
+      status: TrainingStatus.completed,
+      rating: 5,
+      relevance: 5,
+      notes: 'Conceitos fundamentais de arquitetura limpa.',
+      startedAt: new Date('2025-11-01'),
+      completedAt: new Date('2025-12-15'),
+    },
+  });
+
+  await prisma.trainingDocument.create({
+    data: {
+      trainingId: t1.id,
+      fileUrl: 'https://example.com/notes.pdf',
+      fileName: 'Apontamentos_NodeJS.pdf',
+    }
+  });
+
+  // 2) Em Progresso
+  const t2 = await prisma.trainingRecord.create({
+    data: {
+      userId: user.id,
+      platformId: msLearn.id,
+      title: 'Introduction to Azure Cloud Services',
+      url: 'https://learn.microsoft.com/azure/intro',
+      status: TrainingStatus.ongoing,
+      progressLevel: 'Em evolução',
+      startedAt: new Date('2026-01-10'),
+      notes: 'Focar na parte de IAM.',
+    },
+  });
+  
+  await prisma.trainingDocument.create({
+    data: {
+      trainingId: t2.id,
+      fileUrl: 'https://example.com/azure-iam.docx',
+      fileName: 'Azure_IAM_Notes.docx',
+    }
+  });
+
+  // 3) Guardada
+  await prisma.trainingRecord.create({
+    data: {
+      userId: user.id,
+      platformId: udemy.id,
+      title: 'Advanced PostgreSQL',
+      url: 'https://www.udemy.com/course/postgres-advanced/',
+      status: TrainingStatus.priority,
+      priorityOrder: 1,
     },
   });
 
   console.log('✅ Seed concluído com sucesso!');
 }
 
-// -------------------------------------------------------------
-// EXECUÇÃO + SHUTDOWN CORRETO
-// -------------------------------------------------------------
 main()
   .catch((e) => {
     console.error('❌ Seed falhou:', e);
@@ -342,5 +157,3 @@ main()
     await prisma.$disconnect();
     await pool.end();
   });
-
-export default main;

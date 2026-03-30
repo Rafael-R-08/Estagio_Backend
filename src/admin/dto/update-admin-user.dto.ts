@@ -18,6 +18,11 @@ export class UpdateAdminUserDto {
   @IsBoolean()
   isActive?: boolean;
 
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  function?: string;
+
   @ApiProperty({ required: false, enum: ServiceLine })
   @IsOptional()
   @IsEnum(ServiceLine)

@@ -1,7 +1,7 @@
 // src/ai/services/indexing.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { EmbeddingService } from './embedding.service.js';
+import { EmbeddingService } from './embedding.service';
 import { ChunkSource } from '@prisma/client';
 
 import { CourseCreatedEvent, CourseBatchCreatedEvent } from '../events/course-indexing.event';
@@ -46,14 +46,19 @@ export class IndexingService {
       const metadata = this.buildMetadata(event);
 
       // 2. Criar novo chunk
-      return await this.embeddingService.indexChunk(
+      const result = await this.embeddingService.indexChunk(
         content,
         event.source,
         event.courseId,
         metadata
       );
+      return result;
     } catch (error) {
       this.logger.error(`Erro ao indexar curso ${event.courseId}: ${error.message}`);
+      // Log to file for deep inspection
+      const fs = require('fs');
+      fs.appendFileSync('/tmp/indexing.log', `[${new Date().toISOString()}] Error ${event.courseId}: ${error.stack}\n`);
+      return null; 
     }
   }
 
@@ -78,9 +83,9 @@ export class IndexingService {
       await Promise.allSettled(batch.map(course => this.indexCourse(course)));
 
       if (i + BATCH_SIZE < total) {
-        this.logger.log(`Batch ${currentBatchIdx}/${totalBatches} concluído. A aguardar 8s antes do próximo para respeitar rate limits...`);
-        // 24 req/min = 1 req a cada 2.5s. Com batch de 3: 3 * 2.5s = 7.5s (esperamos 8s)
-        await this.sleep(8000);
+        this.logger.log(`Batch ${currentBatchIdx}/${totalBatches} concluído. A aguardar 15s antes do próximo para respeitar rate limits...`);
+        // 24 req/min = 1 req a cada 2.5s. Para segurança absoluta no Free Tier: 15s por batch de 3.
+        await this.sleep(15000);
       }
     }
 

@@ -13,16 +13,7 @@ class EnvironmentVariables {
   NODE_ENV: Environment;
 
   @IsString()
-  GITHUB_TOKEN: string;
-
-  @IsString()
-  GITHUB_MODEL: string;
-
-  @IsString()
-  GITHUB_EMBED_MODEL: string;
-
-  @IsString()
-  GITHUB_MODELS_ENDPOINT: string;
+  GROQ_API_KEY: string;
 
   @IsString()
   DATABASE_URL: string;

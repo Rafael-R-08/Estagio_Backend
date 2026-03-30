@@ -1,84 +1,76 @@
-// src/ai/templates/rag.template.ts
-export function buildRagPrompt(context: string, query: string): string {
-  return `És o Assistente de Carreira e Formação da Softinsa. Responde em Português de Portugal (PT-PT).
+/**
+ * src/ai/templates/rag.template.ts
+ * Templates compactados para Llama 3.3 (Audit Production).
+ */
 
-INSTRUÇÕES:
-1. Prioriza o CONTEXTO abaixo para responder.
-2. Se a pergunta for sobre certificações gerais, planos de carreira ou tendências TI e não estiver no contexto, usa o teu conhecimento geral para ajudar o utilizador de forma construtiva.
-3. Se o utilizador perguntar sobre o seu próprio progresso, usa a secção de PERFIL (se disponível no contexto).
-4. Mantém um tom profissional, encorajador e útil.
-
-CONTEXTO:
+export function buildRagPrompt(context: string, query: string, lang: string = 'pt'): string {
+  const isEn = lang.toLowerCase() === 'en';
+  
+  if (isEn) {
+    return `Assistant: Softinsa Career & Training. Language: English.
+Instructions: Answer based on CONTEXT. If missing, use general IT knowledge. Use PROFILE if provided. Tone: Helpful/Professional.
+### CONTEXT
 ${context}
+### QUESTION: ${query}
+### ANSWER:`.trim();
+  }
 
-PERGUNTA: ${query}
-RESPOSTA:`.trim();
-}
-
-export interface AiSettings {
-  aiResponseDetail?: string | null;     // 'concise' | 'detailed'
-  aiResponseLanguage?: string | null;   // 'Português' | 'English'
-  aiExplainReasoning?: boolean | null;
-  aiRecommendationMode?: string | null; // 'conservative' | 'exploratory' | 'balanced'
+  return `Assistente: Carreira e Formação Softinsa. Idioma: PT-PT.
+Instruções: Responde com base no CONTEXTO. Se ausente, usa conhecimento geral TI. Usa PERFIL se disponível. Tom: Profissional/Útil.
+### CONTEXTO
+${context}
+### PERGUNTA: ${query}
+### RESPOSTA:`.trim();
 }
 
 export function buildRecommendationPrompt(
-  userProfile: {
-    techStack: string[];
+  profile: {
     interests: string[];
     experienceLevel: string;
-    learningGoals: string[];
     completedTrainings: string[];
+    ongoingTrainings?: string[];
     serviceLine?: string;
+    userFunction?: string;
+    skills?: { skillName: string; level: string; yearsOfExperience: number }[];
   },
   context: string,
   query: string,
-  aiSettings: AiSettings = {},
+  lang: string = 'pt',
 ): string {
-  const stack = userProfile.techStack.length > 0 ? userProfile.techStack.join(', ') : 'não definida';
-  const interests = userProfile.interests.length > 0 ? userProfile.interests.join(', ') : 'não definidos';
-  const completed = userProfile.completedTrainings.length > 0 ? userProfile.completedTrainings.join(', ') : 'nenhuma';
-  const goals = userProfile.learningGoals.length > 0 ? userProfile.learningGoals.join(', ') : 'crescimento profissional';
-  const level = userProfile.experienceLevel || 'não definido';
-  const serviceLine = userProfile.serviceLine || 'não definida';
+  const isEn = lang.toLowerCase() === 'en';
+  const none = isEn ? 'none' : 'nenhuma';
+  
+  const interests = profile.interests.join(', ') || none;
+  const skills = profile.skills?.map(s => `${s.skillName}(${s.level})`).join(', ') || none;
+  const exclude = profile.completedTrainings.concat(profile.ongoingTrainings || []).join(', ');
 
-  const detailInstruction =
-    aiSettings.aiResponseDetail === 'detailed'
-      ? 'Fornece descrições detalhadas de cada curso (2-3 frases por razão).'
-      : aiSettings.aiResponseDetail === 'concise'
-        ? 'Sê muito conciso. Usa no máximo 1 frase curta por razão.'
-        : 'Usa 1 frase explicando porque é relevante para este perfil.';
+  if (isEn) {
+    return `Career Consultant: Softinsa. Language: English.
+Profile: Role ${profile.userFunction} (${profile.serviceLine}), Level ${profile.experienceLevel}, Skills: ${skills}, Interests: ${interests}.
+Knowledge Base: ${context || 'General IT knowledge.'}
+Rule: NEVER recommend completed/ongoing: [${exclude}].
 
-  const reasoningInstruction = aiSettings.aiExplainReasoning
-    ? '\nExplica também brevemente o teu raciocínio geral para as opções escolhidas.'
-    : '';
-
-  return `És o Consultor de Carreira Inteligente da Softinsa. Responde SEMPRE em Português de Portugal (PT-PT).${reasoningInstruction}
-
-PERFIL DO UTILIZADOR:
-- Nível: ${level}
-- Tech Stack: ${stack}
-- Interesses: ${interests}
-- Service Line: ${serviceLine}
-- Histórico: ${completed}
-- Objetivos Atuais: ${goals}
-
-CURSOS DISPONÍVEIS (CONTEXTO):
-${context}
-
-TAREFA: ${query}
-
-REQUISITO CRÍTICO: Deves responder APENAS com um objeto JSON puro (sem markdown ou blocos de código) no seguinte formato:
-
+Task: ${query}
+Format: JSON only.
 {
-  "interests": "Markdown formatado com 1-2 cursos baseados nos objetivos: ${goals}.",
-  "improvement": "Markdown formatado com 1-2 cursos para aprofundar a stack atual: ${stack}.",
-  "missing_skills": "Markdown formatado com 1-2 cursos baseados na Service Line (${serviceLine}) e gaps de perfil."
+  "improvement": "Growth recommendations for ${profile.userFunction}. Markdown with **Course** and brief Reason.",
+  "interests": "Based on interests: ${interests}. Markdown.",
+  "missing_skills": "To close gaps in ${skills}. Markdown."
 }
+JSON:`.trim();
+  }
 
-Cada campo deve conter Markdown formatado com:
-**Nome do curso** (Plataforma)
-Razão: [${detailInstruction}]
+  return `Consultor: Carreira Softinsa. Idioma: PT-PT.
+Perfil: ${profile.userFunction} (${profile.serviceLine}), Nível ${profile.experienceLevel}, Skills: ${skills}, Interesses: ${interests}.
+Base: ${context || 'Conhecimento geral TI.'}
+Regra: NUNCA recomendar concluídos/em curso: [${exclude}].
 
+Tarefa: ${query}
+Formato: Apenas JSON.
+{
+  "improvement": "Crescimento profissional para ${profile.userFunction}. Markdown com **Curso** e Razão curta.",
+  "interests": "Baseado em interesses: ${interests}. Markdown.",
+  "missing_skills": "Para fechar gaps em ${skills}. Markdown."
+}
 JSON:`.trim();
 }

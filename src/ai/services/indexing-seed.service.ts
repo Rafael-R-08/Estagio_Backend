@@ -1,7 +1,7 @@
 // src/ai/services/indexing-seed.service.ts
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { IndexingService } from './indexing.service.js';
+import { IndexingService } from './indexing.service';
 import { CourseCreatedEvent, CourseBatchCreatedEvent } from '../events/course-indexing.event';
 import { ChunkSource } from '@prisma/client';
 
@@ -44,19 +44,7 @@ export class IndexingSeedService implements OnModuleInit {
         ChunkSource.EXTERNAL_COURSE
       ));
 
-      // 2. Cursos Softinsa Learning (Internos)
-      const slCourses = await this.prisma.softinsaLearning.findMany();
-      const slEvents = slCourses.map(c => new CourseCreatedEvent(
-        c.id, 
-        c.title, 
-        c.description, 
-        'Softinsa Learning', 
-        c.department || 'Softinsa', 
-        c.level || undefined, 
-        ChunkSource.SOFTINSA_LEARNING
-      ));
-
-      const allEvents = [...courseEvents, ...slEvents];
+      const allEvents = [...courseEvents];
 
       if (allEvents.length > 0) {
         const estMinutes = Math.ceil(allEvents.length / 24);

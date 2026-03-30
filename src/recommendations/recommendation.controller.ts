@@ -21,7 +21,9 @@ class RecommendQueryDto {
 @UseGuards(JwtAuthGuard)
 @Controller('recommendations')
 export class RecommendationController {
-  constructor(private recommendationService: RecommendationService) {}
+  constructor(
+    private recommendationService: RecommendationService,
+  ) {}
 
   /**
    * POST /recommendations/me
@@ -36,10 +38,6 @@ export class RecommendationController {
     return this.recommendationService.recommendForUser(userId);
   }
 
-  /**
-   * GET /recommendations/me
-   * Recomendações automáticas baseadas no perfil (sem necessidade de query)
-   */
   @Get('me')
   @ApiOperation({
     summary: 'Recomendações automáticas baseadas no perfil (sem necessidade de query)',
@@ -47,4 +45,6 @@ export class RecommendationController {
   async autoRecommend(@CurrentUser() userId: string) {
     return this.recommendationService.recommendForUser(userId);
   }
+
+
 }

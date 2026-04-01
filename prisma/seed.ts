@@ -42,6 +42,50 @@ async function main() {
         config: {},
       },
     }),
+    prisma.learningPlatform.upsert({
+      where: { name: 'IBM SkillsBuild' },
+      update: {},
+      create: {
+        name: 'IBM SkillsBuild',
+        type: 'General',
+        enabled: true,
+        searchEnabled: true,
+        config: {},
+      },
+    }),
+    prisma.learningPlatform.upsert({
+      where: { name: 'Academia Portugal Digital' },
+      update: {},
+      create: {
+        name: 'Academia Portugal Digital',
+        type: 'Public',
+        enabled: true,
+        searchEnabled: true,
+        config: {},
+      },
+    }),
+    prisma.learningPlatform.upsert({
+      where: { name: 'Trailhead' },
+      update: {},
+      create: {
+        name: 'Trailhead',
+        type: 'Salesforce',
+        enabled: true,
+        searchEnabled: true,
+        config: {},
+      },
+    }),
+    prisma.learningPlatform.upsert({
+      where: { name: 'Softinsa Everyday Learning' },
+      update: {},
+      create: {
+        name: 'Softinsa Everyday Learning',
+        type: 'Internal',
+        enabled: true,
+        searchEnabled: true,
+        config: {},
+      },
+    }),
   ]);
 
   const udemy = platforms[0];
@@ -58,7 +102,7 @@ async function main() {
       role: Role.USER,
       serviceLine: ServiceLine.HYBRID_CLOUD,
       onboardingDone: true,
-      experienceLevel: 'mid',
+      experienceLevel: 'intermedio',
       interests: ['Cloud', 'DevOps', 'Backend'],
       userFunction: 'Full Stack Developer',
     }
@@ -68,9 +112,9 @@ async function main() {
   await prisma.userSkill.deleteMany({ where: { userId: user.id } });
   await prisma.userSkill.createMany({
     data: [
-      { userId: user.id, skillName: 'Node.js', yearsOfExperience: 3, level: 'advanced' },
-      { userId: user.id, skillName: 'React', yearsOfExperience: 2, level: 'intermediate' },
-      { userId: user.id, skillName: 'TypeScript', yearsOfExperience: 2, level: 'advanced' },
+      { userId: user.id, skillName: 'Node.js', level: 'experiente' },
+      { userId: user.id, skillName: 'React', level: 'intermedio' },
+      { userId: user.id, skillName: 'TypeScript', level: 'experiente' },
     ]
   });
 
@@ -82,6 +126,18 @@ async function main() {
       email: 'newuser@example.com',
       passwordHash: userHash,
       name: 'New User',
+      role: Role.USER,
+      onboardingDone: false,
+    }
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'onboarding-test@example.com' },
+    update: { onboardingDone: false },
+    create: {
+      email: 'onboarding-test@example.com',
+      passwordHash: userHash,
+      name: 'Onboard Tester',
       role: Role.USER,
       onboardingDone: false,
     }

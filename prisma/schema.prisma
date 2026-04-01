@@ -1,7 +1,3 @@
-// ----------------------
-// Prisma Schema - Learning Hub (Softinsa)
-// ----------------------
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,7 +6,199 @@ datasource db {
   provider = "postgresql"
 }
 
-// ---- Enums ----
+model User {
+  id              String           @id @default(uuid())
+  email           String           @unique
+  emailVerified   Boolean          @default(false)
+  passwordHash    String
+  name            String?
+  role            Role             @default(USER)
+  experienceLevel ExperienceLevel?
+  interests       String[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  isActive        Boolean          @default(true)
+  managedLineId   ServiceLine?
+  onboardingDone  Boolean          @default(false)
+  serviceLine     ServiceLine?
+  userFunction    String?
+  certificates    Certificate[]
+  refreshTokens   RefreshToken[]
+  trainings       TrainingRecord[]
+  settings        UserSettings?
+  skills          UserSkill[]
+  conversations   Conversation[]
+}
+
+model LearningPlatform {
+  id             String           @id @default(uuid())
+  name           String           @unique
+  type           String
+  apiEndpoint    String?
+  apiKeyRequired Boolean          @default(false)
+  enabled        Boolean          @default(true)
+  searchEnabled  Boolean          @default(true)
+  config         Json             @default("{}")
+  apiKey         String?
+  courses        Course[]
+  trainings      TrainingRecord[]
+}
+
+model TrainingRecord {
+  id            String             @id @default(uuid())
+  userId        String
+  platformId    String?
+  title         String
+  url           String
+  status        TrainingStatus
+  startedAt     DateTime?
+  completedAt   DateTime?
+  notes         String?
+  rating        Int?               @db.SmallInt
+  createdAt     DateTime           @default(now())
+  priorityOrder Int?
+  progressLevel String?
+  relevance     Int?               @db.SmallInt
+  certificate   Certificate?
+  documents     TrainingDocument[]
+  platform      LearningPlatform?  @relation(fields: [platformId], references: [id])
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resources     TrainingResource[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model TrainingDocument {
+  id         String         @id @default(uuid())
+  trainingId String
+  fileUrl    String
+  fileName   String
+  createdAt  DateTime       @default(now())
+  training   TrainingRecord @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+
+  @@index([trainingId])
+}
+
+model Certificate {
+  id                String           @id @default(uuid())
+  trainingId        String           @unique
+  userId            String
+  fileUrl           String
+  courseName        String?
+  provider          String?
+  completionDate    DateTime?
+  expirationDate    DateTime?
+  extractedMetadata Json?
+  createdAt         DateTime         @default(now())
+  errorMessage      String?
+  jobId             String?
+  status            ProcessingStatus @default(PENDING)
+  training          TrainingRecord   @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expirationDate])
+}
+
+model Course {
+  id            String                 @id @default(uuid())
+  platformId    String
+  externalId    String
+  title         String
+  description   String?
+  url           String
+  instructor    String?
+  rating        Float?
+  durationHours Int?
+  level         CourseLevel?
+  tags          String[]
+  embedding     Unsupported("vector")?
+  lastUpdated   DateTime               @default(now())
+  isFree        Boolean?
+  platform      LearningPlatform       @relation(fields: [platformId], references: [id], onDelete: Cascade)
+
+  @@index([platformId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+model UserSettings {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  notifyWeeklyRecs Boolean  @default(true)
+  notifyCertExpiry Boolean  @default(true)
+  notifyProgress   Boolean  @default(true)
+  notifyByEmail    Boolean  @default(true)
+  notifyInApp      Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  uiLanguage       String   @default("pt")
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TextChunk {
+  id            String                @id @default(uuid())
+  content       String
+  embedding     Unsupported("vector")
+  source        ChunkSource           @default(RAG_KNOWLEDGE)
+  sourceId      String?
+  metadata      Json?
+  lastUpdatedAt DateTime?
+  createdAt     DateTime              @default(now())
+
+  @@index([source])
+  @@index([sourceId])
+  @@map("text_chunks")
+}
+
+model UserSkill {
+  id        String     @id @default(uuid())
+  userId    String
+  skillName String
+  createdAt DateTime   @default(now())
+  level     SkillLevel
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model TrainingResource {
+  id         String         @id @default(uuid())
+  trainingId String
+  title      String
+  content    String
+  position   Int            @default(0)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  files      ResourceFile[]
+  training   TrainingRecord @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+
+  @@index([trainingId])
+}
+
+model ResourceFile {
+  id         String           @id @default(uuid())
+  resourceId String
+  fileUrl    String
+  fileName   String
+  createdAt  DateTime         @default(now())
+  resource   TrainingResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@index([resourceId])
+}
+
 enum Role {
   USER
   ADMIN
@@ -27,17 +215,19 @@ enum ServiceLine {
 
 enum ExperienceLevel {
   junior
-  mid
+  intermedio
   senior
-  lead
+  especialista
+  lider
 }
 
 enum TrainingStatus {
-  accessed
   ongoing
   completed
   priority
   later
+  accessed
+  cancelled
 }
 
 enum CourseLevel {
@@ -46,96 +236,16 @@ enum CourseLevel {
   advanced
 }
 
+enum SkillLevel {
+  iniciante
+  intermedio
+  experiente
+}
+
 enum ChunkSource {
   EXTERNAL_COURSE
   COURSE_ANALYSIS
   RAG_KNOWLEDGE
-}
-
-// ---- Core Models ----
-
-model User {
-  id              String           @id @default(uuid())
-  email           String           @unique
-  emailVerified   Boolean          @default(false)
-  refreshTokens   RefreshToken[]
-  passwordHash    String
-  name            String?
-  role            Role             @default(USER)
-  experienceLevel ExperienceLevel?
-  interests       String[] // ex: ["Cloud","DevOps"]
-
-  userFunction      String?
-  serviceLine    ServiceLine?
-  onboardingDone Boolean      @default(false)
-  managedLineId  ServiceLine?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  isActive  Boolean  @default(true)
-
-  // relações
-  trainings    TrainingRecord[]
-  certificates Certificate[]
-  settings     UserSettings?
-  skills       UserSkill[]
-}
-
-// Plataformas
-model LearningPlatform {
-  id             String  @id @default(uuid())
-  name           String  @unique
-  type           String
-  apiEndpoint    String?
-  apiKeyRequired Boolean @default(false)
-  apiKey         String?
-  enabled        Boolean @default(true)
-  searchEnabled  Boolean @default(true)
-  config         Json    @default("{}")
-
-  // relações
-  trainings TrainingRecord[]
-  courses   Course[]
-}
-
-// Registos de treino por utilizador (estado, rating, timestamps)
-model TrainingRecord {
-  id         String            @id @default(uuid())
-  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId     String
-  platform   LearningPlatform? @relation(fields: [platformId], references: [id])
-  platformId String?
-
-  title         String
-  url           String
-  status        TrainingStatus
-  startedAt     DateTime?
-  completedAt   DateTime?
-  rating        Int?           @db.SmallInt
-  relevance     Int?           @db.SmallInt
-  notes         String?
-  progressLevel String? // ex: "A iniciar", "Em evolução", "Finalizado"
-  priorityOrder Int?    // Para ordenar na seção "Guardadas"
-
-  createdAt DateTime @default(now())
-
-  // relações
-  certificate Certificate?
-  documents   TrainingDocument[]
-
-  @@index([userId])
-  @@index([status])
-}
-
-model TrainingDocument {
-  id         String         @id @default(uuid())
-  training   TrainingRecord @relation(fields: [trainingId], references: [id], onDelete: Cascade)
-  trainingId String
-  fileUrl    String
-  fileName   String
-  createdAt  DateTime       @default(now())
-
-  @@index([trainingId])
 }
 
 enum ProcessingStatus {
@@ -145,111 +255,26 @@ enum ProcessingStatus {
   FAILED
 }
 
-// Certificados (evidências), associados ao treino e ao utilizador (renovações)
-model Certificate {
-  id         String         @id @default(uuid())
-  training   TrainingRecord @relation(fields: [trainingId], references: [id], onDelete: Cascade)
-  trainingId String         @unique
-  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId     String
-
-  fileUrl           String
-  courseName        String?
-  provider          String?
-  completionDate    DateTime?
-  expirationDate    DateTime?
-  extractedMetadata Json?
-  
-  status            ProcessingStatus @default(PENDING)
-  jobId             String?
-  errorMessage      String?
-
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([expirationDate])
-}
-
-// Cache de cursos por plataforma (para unified search + recomendações)
-model Course {
-  id         String           @id @default(uuid())
-  platform   LearningPlatform @relation(fields: [platformId], references: [id], onDelete: Cascade)
-  platformId String
-
-  externalId    String
-  title         String
-  description   String?
-  url           String
-  instructor    String?
-  rating        Float?
-  durationHours Int?
-  level         CourseLevel?
-  isFree        Boolean?
-  tags          String[]
-  embedding     Unsupported("vector(384)")? // pgvector type for semantic search
-
-  lastUpdated DateTime @default(now())
-
-  @@index([platformId])
-}
-
-model RefreshToken {
-  id        String   @id @default(uuid())
+model Conversation {
+  id        String    @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token     String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  title     String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
 
   @@index([userId])
-  @@index([token])
 }
 
-// Definições personalizadas do utilizador (notificações, aparência)
-model UserSettings {
-  id     String @id @default(uuid())
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  role           String       // "user" | "assistant" | "system"
+  content        String
+  metadata       Json?        // Stores tokens, model, sources, etc.
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
-  // Notificações
-  notifyWeeklyRecs Boolean @default(true)
-  notifyCertExpiry Boolean @default(true)
-  notifyProgress   Boolean @default(true)
-  notifyByEmail    Boolean @default(true)
-  notifyInApp      Boolean @default(true)
-
-  // Interface (Aparência)
-  uiLanguage String @default("pt") // "pt" | "en"
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-// Chunks de texto para testes de embedding e pesquisa semântica
-model TextChunk {
-  id            String                      @id @default(uuid())
-  content       String
-  embedding     Unsupported("vector(384)")
-  source        ChunkSource                 @default(RAG_KNOWLEDGE)
-  sourceId      String?
-  metadata      Json?
-  lastUpdatedAt DateTime?
-  createdAt     DateTime                    @default(now())
-
-  @@index([source])
-  @@index([sourceId])
-  @@map("text_chunks")
-}
-
-model UserSkill {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  skillName String
-  yearsOfExperience Int
-  level      String // e.g., 'beginner', 'intermediate', 'advanced'
-  createdAt DateTime @default(now())
-
-  @@index([userId])
+  @@index([conversationId])
 }

@@ -3,8 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import Groq from 'groq-sdk';
 import { CacheService } from '../../cache/cache.service';
 import * as crypto from 'crypto';
-import * as pdf from 'pdf-parse';
 import { Observable } from 'rxjs';
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
 
 export interface GenerateOptions {
   maxTokens?: number;
@@ -17,6 +21,7 @@ export interface GenerateOptions {
   noRetry?: boolean;
   systemPrompt?: string;
   responseFormat?: 'text' | 'json_object';
+  history?: ChatMessage[];
 }
 
 @Injectable()
@@ -34,7 +39,7 @@ export class AiService {
   }
 
   /**
-   * Exponential backoff helper adaptado para Groq (429/503)
+   * Exponential backoff helper para Groq
    */
   private async withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
     let lastError: any;
@@ -55,7 +60,7 @@ export class AiService {
   }
 
   /**
-   * Gera texto usando Llama 3.3 via Groq
+   * Gera texto ou JSON usando Groq com suporte a histórico
    */
   async generateText(prompt: string, options: GenerateOptions = {}, model?: string): Promise<string> {
     const selectedModel = model || this.DEFAULT_MODEL;
@@ -68,9 +73,14 @@ export class AiService {
       systemPrompt += `\nCRITICAL: Respond STRICTLY in ${langLabel}.`;
     }
 
+    if (options.responseFormat === 'json_object') {
+      systemPrompt += `\nCRITICAL: Respond ONLY with a valid JSON object.`;
+    }
+
     const userId = options.userId || 'anonymous';
-    const hash = crypto.createHash('sha256').update(`${userId}:${systemPrompt}:${prompt}`).digest('hex');
-    const cacheKey = `groq:v2:${selectedModel}:${hash}`; // v2 para invalidar cache antigo
+    const historyHash = options.history ? crypto.createHash('md5').update(JSON.stringify(options.history)).digest('hex') : '';
+    const hash = crypto.createHash('sha256').update(`${userId}:${systemPrompt}:${prompt}:${historyHash}`).digest('hex');
+    const cacheKey = `groq:v3:${selectedModel}:${hash}`;
 
     if (!options.noCache) {
       const cached = await this.cache.get(cacheKey);
@@ -80,38 +90,31 @@ export class AiService {
     try {
       const startTime = Date.now();
       const result = await this.withRetry(async () => {
-        let userPrompt = prompt;
-        if (options.responseFormat === 'json_object' && !prompt.toLowerCase().includes('json')) {
-          userPrompt += ' (Respond ONLY in JSON format)';
-        }
+        const messages: ChatMessage[] = [
+          { role: 'system', content: systemPrompt },
+          ...(options.history || []),
+          { role: 'user', content: prompt }
+        ];
 
         const response = await this.groq.chat.completions.create({
           model: selectedModel,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          temperature: options.temperature ?? 0.1,
+          messages,
+          temperature: options.temperature ?? (options.responseFormat === 'json_object' ? 0.1 : 0.7),
           top_p: options.topP ?? 0.9,
-          max_tokens: options.maxTokens ?? 1024,
+          max_tokens: options.maxTokens ?? 2048,
           response_format: options.responseFormat === 'json_object' ? { type: 'json_object' } : undefined,
         });
 
         const latency = Date.now() - startTime;
         const usage = response.usage;
         if (usage) {
-          const logPayload = {
+          this.logger.log({
             message: 'Groq AI Execution',
             model: selectedModel,
-            prompt_tokens: usage.prompt_tokens,
-            completion_tokens: usage.completion_tokens,
-            total_tokens: usage.total_tokens,
+            tokens: usage.total_tokens,
             latency_ms: latency,
             userId: userId,
-            lang: options.language,
-            type: options.responseFormat === 'json_object' ? 'structured' : 'text'
-          };
-          this.logger.log(logPayload);
+          });
         }
 
         return response.choices[0]?.message?.content || '';
@@ -122,68 +125,57 @@ export class AiService {
       }
       return result;
     } catch (error: any) {
-      this.logger.error(`Erro na API Groq: ${error.message}`);
+      this.logger.error(`Erro Groq: ${error.message}`);
       throw error;
     }
   }
 
   /**
-   * Gera um stream de texto usando Groq para melhor UX (SSE)
+   * Gera um stream SSE (Server-Sent Events) compatível com NestJS
    */
-  generateStream(prompt: string, options: GenerateOptions = {}, model?: string): Observable<string> {
+  async generateStream(prompt: string, options: GenerateOptions = {}, model?: string): Promise<Observable<string>> {
     const selectedModel = model || this.DEFAULT_MODEL;
-    
-    // Injeção dinâmica de idioma
     const langLabel = options.language === 'en' ? 'English' : 'Portuguese (Portugal)';
-    let systemPrompt = options.systemPrompt || `Tu és o assistente de IA da Softinsa. Responde sempre em ${langLabel}.`;
-    
-    if (options.language) {
-      systemPrompt += `\nCRITICAL: Respond STRICTLY in ${langLabel}.`;
-    }
+    const systemPrompt = options.systemPrompt || `Tu és o assistente profissional da Softinsa. Responde em ${langLabel}.`;
 
     return new Observable(observer => {
       this.withRetry(async () => {
+        const messages: ChatMessage[] = [
+          { role: 'system', content: systemPrompt },
+          ...(options.history || []),
+          { role: 'user', content: prompt }
+        ];
+
         const stream = await this.groq.chat.completions.create({
           model: selectedModel,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: prompt }
-          ],
-          temperature: options.temperature ?? 0.6, // Valor sugerido para o Chat
-          top_p: options.topP ?? 0.9,
-          max_tokens: options.maxTokens ?? 1024,
+          messages,
+          temperature: options.temperature ?? 0.7,
           stream: true,
         });
 
         for await (const chunk of stream) {
           const content = chunk.choices[0]?.delta?.content || '';
-          if (content) {
-            observer.next(content);
-          }
+          if (content) observer.next(content);
         }
-        
         observer.complete();
       }).catch(err => {
-        this.logger.error(`Erro no stream Groq: ${err.message}`);
+        this.logger.error(`Erro Stream: ${err.message}`);
         observer.error(err);
       });
     });
   }
 
   /**
-   * Extração de texto genérica (legado adaptado para Llama 3.3)
+   * Utilitário para ler PDF (Isolado do processamento de metadados)
    */
-  async analyzeDocument(buffer: Buffer, prompt: string, options: GenerateOptions = {}): Promise<string> {
+  async extractPdfText(buffer: Buffer): Promise<string> {
     try {
       const pdfParse = require('pdf-parse');
       const data = await pdfParse(buffer);
-      const text = data.text.substring(0, 30000); 
-      
-      const enrichedPrompt = `DOCUMENT CONTENT:\n${text}\n\nINSTRUCTION: ${prompt}`;
-      return this.generateText(enrichedPrompt, { ...options, temperature: 0.1 });
+      return data.text.substring(0, 40000); 
     } catch (error: any) {
-      this.logger.error(`Falha na extração de texto do PDF: ${error.message}`);
-      throw error;
+      this.logger.error(`PDF Read Error: ${error.message}`);
+      return '';
     }
   }
 }

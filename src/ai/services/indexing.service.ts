@@ -50,15 +50,14 @@ export class IndexingService {
         content,
         event.source,
         event.courseId,
-        metadata
+        metadata,
       );
       return result;
-    } catch (error) {
-      this.logger.error(`Erro ao indexar curso ${event.courseId}: ${error.message}`);
-      // Log to file for deep inspection
-      const fs = require('fs');
-      fs.appendFileSync('/tmp/indexing.log', `[${new Date().toISOString()}] Error ${event.courseId}: ${error.stack}\n`);
-      return null; 
+    } catch (error: any) {
+      this.logger.error(
+        `Erro ao indexar curso ${event.courseId}: ${error.message}`,
+      );
+      return null;
     }
   }
 
@@ -71,20 +70,22 @@ export class IndexingService {
     const total = courses.length;
     this.logger.log(`A iniciar indexação de batch: ${total} cursos.`);
 
-    // Batch de 3 para ficar abaixo dos 5 concorrentes da API
     const BATCH_SIZE = 3;
     const totalBatches = Math.ceil(total / BATCH_SIZE);
 
     for (let i = 0; i < total; i += BATCH_SIZE) {
       const currentBatchIdx = Math.floor(i / BATCH_SIZE) + 1;
       const batch = courses.slice(i, i + BATCH_SIZE);
-      
-      this.logger.debug(`Processando Batch ${currentBatchIdx}/${totalBatches}...`);
-      await Promise.allSettled(batch.map(course => this.indexCourse(course)));
+
+      this.logger.debug(
+        `Processando Batch ${currentBatchIdx}/${totalBatches}...`,
+      );
+      await Promise.allSettled(batch.map((course) => this.indexCourse(course)));
 
       if (i + BATCH_SIZE < total) {
-        this.logger.log(`Batch ${currentBatchIdx}/${totalBatches} concluído. A aguardar 15s antes do próximo para respeitar rate limits...`);
-        // 24 req/min = 1 req a cada 2.5s. Para segurança absoluta no Free Tier: 15s por batch de 3.
+        this.logger.log(
+          `Batch ${currentBatchIdx}/${totalBatches} concluído. A aguardar 15s para respeitar rate limits...`,
+        );
         await this.sleep(15000);
       }
     }
@@ -98,7 +99,7 @@ export class IndexingService {
   private buildCourseChunkContent(event: CourseCreatedEvent): string {
     return `
       CURSO: ${event.title}
-      PROVEDOR: ${event.provider}
+      PROVEDOR: ${event.provider || 'N/A'}
       CATEGORIA: ${event.category || 'N/A'}
       NÍVEL: ${event.difficulty || 'N/A'}
       DESCRIÇÃO: ${event.description || 'Sem descrição.'}
@@ -111,18 +112,61 @@ export class IndexingService {
       platform: event.provider,
       category: event.category,
       level: event.difficulty,
-      indexedAt: new Date().toISOString()
+      indexedAt: new Date().toISOString(),
     };
   }
 
   @Cron(EVERY_DAY_AT_3AM)
   async handleDailyReindex() {
-    this.logger.log('Iniciando verificação diária de cursos não indexados...');
+    this.logger.log(
+      'Iniciando verificação diária de cursos não indexados...',
+    );
     await this.reindexMissingCourses();
   }
 
   private async reindexMissingCourses() {
-    // Placeholder para lógica futura
+    try {
+      this.logger.log('Sincronizando Vector Store com a tabela de Courses...');
+      
+      // 1. Obter IDs já indexados para o source EXTERNAL_COURSE
+      const indexed = await this.prisma.textChunk.findMany({
+        where: { source: ChunkSource.EXTERNAL_COURSE },
+        select: { sourceId: true }
+      });
+      const indexedIds = new Set(indexed.map(i => i.sourceId).filter(Boolean));
+
+      // 2. Obter todos os cursos da base de dados
+      const allCourses = await this.prisma.course.findMany({
+        include: { platform: true }
+      });
+
+      // 3. Filtrar os que faltam
+      const missing = allCourses.filter(c => !indexedIds.has(c.externalId));
+      
+      if (missing.length === 0) {
+        this.logger.log('Todos os cursos estão indexados corretamente no Vector Store.');
+        return;
+      }
+
+      this.logger.log(`Encontrados ${missing.length} cursos sem indexação semântica. Iniciando processo...`);
+
+      // 4. Mapear para eventos
+      const events: CourseCreatedEvent[] = missing.map(c => ({
+        courseId: c.externalId,
+        title: c.title,
+        description: c.description,
+        provider: c.platform.name,
+        category: c.tags?.[0] || 'Geral',
+        difficulty: c.level || undefined,
+        source: ChunkSource.EXTERNAL_COURSE
+      }));
+
+      // 5. Processar via Batch
+      await this.indexCourseBatch({ courses: events });
+      
+    } catch (error) {
+      this.logger.error(`Erro ao reindexar cursos em falta: ${error.message}`);
+    }
   }
 
   async getIndexingStats() {

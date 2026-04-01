@@ -116,7 +116,6 @@ export class AuthService {
           data: skills.map((s) => ({
             userId,
             skillName: s.skillName,
-            yearsOfExperience: s.yearsOfExperience,
             level: s.level,
           })),
         });

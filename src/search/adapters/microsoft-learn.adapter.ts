@@ -1,10 +1,10 @@
-import { Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom, timeout } from 'rxjs';
+import { BasePlatformAdapter } from './base-platform.adapter';
+import { CacheService } from '../../cache/cache.service';
 import type {
   CourseResult,
-  IPlatformAdapter,
-  PlatformConfig,
 } from '../interfaces/platform-adapter.interface';
 
 const MS_LEARN_SEARCH_URL =
@@ -16,64 +16,51 @@ const LEVEL_MAP: Record<string, CourseResult['level']> = {
   advanced: 'advanced',
 };
 
-export class MicrosoftLearnAdapter implements IPlatformAdapter {
+@Injectable()
+export class MicrosoftLearnAdapter extends BasePlatformAdapter {
   readonly platformName = 'Microsoft Learn';
-  private readonly logger = new Logger(MicrosoftLearnAdapter.name);
+  protected readonly logger = new Logger(MicrosoftLearnAdapter.name);
 
   constructor(
     private readonly http: HttpService,
-    private readonly platform: PlatformConfig,
-  ) {}
+    cache: CacheService,
+  ) {
+    super(cache, { id: 'mslearn', name: 'Microsoft Learn', config: {} });
+  }
 
-  async search(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number; minRelevance?: number }): Promise<CourseResult[]> {
+  async fetchResults(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number; minRelevance?: number }): Promise<CourseResult[]> {
     if (filters?.isFree === false) return []; // MS Learn é gratuito
 
-    try {
-      this.logger.log(`[MS Learn] A pesquisar: "${query}"`);
+    const apiUrl = MS_LEARN_SEARCH_URL;
 
-      const apiUrl =
-        this.platform.apiEndpoint ?? MS_LEARN_SEARCH_URL;
+    const response = await firstValueFrom(
+      this.http
+        .get(apiUrl, {
+          params: {
+            search: query,
+            locale: 'en-us',
+            $top: limit,
+            facet: 'category',
+          },
+        })
+        .pipe(timeout(15_000)),
+    );
 
-      const response = await firstValueFrom(
-        this.http
-          .get(apiUrl, {
-            params: {
-              search: query,
-              locale: 'en-us',
-              $top: limit,
-              facet: 'category',
-            },
-          })
-          .pipe(timeout(15_000)),
-      );
-
-      const rawResults = (response.data as { results?: unknown[] })?.results ?? [];
-
-      return rawResults.map((item) => this.normalize(item as Record<string, unknown>));
-    } catch (error: unknown) {
-      this.logger.error(`[MS Learn] Erro ao pesquisar: ${String(error)}`);
-      return [];
-    }
+    const rawResults = (response.data as { results?: unknown[] })?.results ?? [];
+    return rawResults.map((item) => this.normalize(item as Record<string, unknown>));
   }
 
   private normalize(item: Record<string, unknown>): CourseResult {
-    // Extrair nível do campo levels[]
     const rawLevel = String((item.levels as string[])?.[0] ?? '').toLowerCase();
     const level = LEVEL_MAP[rawLevel];
 
-    // Extrair tags de products[] + roles[]
     const tags: string[] = [
       ...((item.products as string[]) ?? []),
       ...((item.roles as string[]) ?? []),
     ];
 
-    // URL canónica
     const url = String(item.url ?? item.displayUrl ?? '');
-
-    // externalId derivado do path do URL para ser estável
     const externalId = `mslearn:${this.urlToId(url)}`;
-
-    // MS Learn API usa 'summary' ou 'body' dependendo do tipo de conteúdo
     const description = String(
       item.summary || item.body || item.description || '',
     );

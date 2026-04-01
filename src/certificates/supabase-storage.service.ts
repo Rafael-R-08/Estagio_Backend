@@ -36,56 +36,66 @@ export class SupabaseStorageService {
     return this.supabase !== null;
   }
 
-  async uploadFile(file: { buffer: Buffer; originalname: string; mimetype: string }): Promise<string> {
+  async uploadFile(
+    file: { buffer: Buffer; originalname: string; mimetype: string },
+    bucketName?: string,
+    prefix = 'cert'
+  ): Promise<string> {
     const ext = extname(file.originalname);
-    const filename = `cert-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+    const targetBucket = bucketName || this.bucket;
+    const filename = `${prefix}-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
 
     // Supabase Storage
     if (this.supabase) {
       const { data, error } = await this.supabase.storage
-        .from(this.bucket)
+        .from(targetBucket)
         .upload(filename, file.buffer, {
           contentType: file.mimetype,
           upsert: true,
         });
 
       if (error) {
-        this.logger.error(`Error uploading to Supabase: ${error.message}`);
-        return this.saveLocal(file.buffer, filename);
+        this.logger.error(`Error uploading to Supabase (${targetBucket}): ${error.message}`);
+        return this.saveLocal(file.buffer, filename, targetBucket);
       }
 
       const { data: publicUrlData } = this.supabase.storage
-        .from(this.bucket)
+        .from(targetBucket)
         .getPublicUrl(filename);
 
-      this.logger.log(`Ficheiro uploaded para Supabase: ${filename}`);
+      this.logger.log(`Ficheiro uploaded para Supabase (${targetBucket}): ${filename}`);
       return publicUrlData.publicUrl;
     }
 
-    return this.saveLocal(file.buffer, filename);
+    return this.saveLocal(file.buffer, filename, targetBucket);
   }
 
-  private saveLocal(buffer: Buffer, filename: string): string {
-    const filePath = join(this.localFallbackDir, filename);
+  private saveLocal(buffer: Buffer, filename: string, folderName: string): string {
+    const targetDir = join(process.cwd(), 'uploads', folderName);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+    const filePath = join(targetDir, filename);
     fs.writeFileSync(filePath, buffer);
-    this.logger.log(`Ficheiro guardado localmente (fallback): ${filename}`);
-    return `/uploads/certificates/${filename}`;
+    this.logger.log(`Ficheiro guardado localmente (fallback) em ${folderName}: ${filename}`);
+    return `/uploads/${folderName}/${filename}`;
   }
 
-  async deleteFile(fileUrl: string): Promise<void> {
+  async deleteFile(fileUrl: string, bucketName?: string): Promise<void> {
+    const targetBucket = bucketName || this.bucket;
     // Supabase
     if (this.supabase && fileUrl.includes(this.configService.get<string>('supabase.url')!)) {
       try {
         const urlParts = fileUrl.split('/');
         const filename = urlParts[urlParts.length - 1];
         const { error } = await this.supabase.storage
-          .from(this.bucket)
+          .from(targetBucket)
           .remove([filename]);
 
         if (error) {
-          this.logger.warn(`Erro ao eliminar ficheiro do Supabase: ${error.message}`);
+          this.logger.warn(`Erro ao eliminar ficheiro do Supabase (${targetBucket}): ${error.message}`);
         } else {
-          this.logger.log(`Ficheiro eliminado do Supabase: ${filename}`);
+          this.logger.log(`Ficheiro eliminado do Supabase (${targetBucket}): ${filename}`);
         }
       } catch (err) {
         this.logger.warn(`Erro ao processar URL do Supabase para eliminação: ${err}`);

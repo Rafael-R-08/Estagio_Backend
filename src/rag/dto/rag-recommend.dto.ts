@@ -29,8 +29,8 @@ class UserProfileDto {
 
   @ApiPropertyOptional({
     description: 'Nível de experiência',
-    example: 'mid',
-    enum: ['junior', 'mid', 'senior', 'lead'],
+    example: 'intermedio',
+    enum: ['junior', 'intermedio', 'senior', 'especialista', 'lider'],
   })
   @IsOptional()
   @IsString()

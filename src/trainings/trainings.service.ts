@@ -5,11 +5,17 @@ import { CreateTrainingDto } from './dto/create-training.dto';
 import { UpdateTrainingDto } from './dto/update-training.dto';
 import { FilterTrainingDto } from './dto/filter-training.dto';
 import { TrackAccessDto } from './dto/track-access.dto';
+import { CreateResourceDto } from './dto/create-resource.dto';
+import { UpdateResourceDto } from './dto/update-resource.dto';
 import { TrainingStatus } from '@prisma/client';
+import { SupabaseStorageService } from '../certificates/supabase-storage.service';
 
 @Injectable()
 export class TrainingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    public readonly prisma: PrismaService,
+    private readonly storageService: SupabaseStorageService,
+  ) { }
 
   async create(userId: string, dto: CreateTrainingDto) {
     return this.prisma.trainingRecord.create({
@@ -36,7 +42,7 @@ export class TrainingsService {
       where: { userId, url: dto.url },
     });
 
-    if (existing) return existing; 
+    if (existing) return existing;
 
     return this.prisma.trainingRecord.create({
       data: {
@@ -78,8 +84,8 @@ export class TrainingsService {
 
     if (existing) {
       if (existing.status === TrainingStatus.ongoing) return existing;
-      return this.update(userId, existing.id, { 
-        status: TrainingStatus.ongoing, 
+      return this.update(userId, existing.id, {
+        status: TrainingStatus.ongoing,
         startedAt: new Date().toISOString(),
         progressLevel: 'A iniciar'
       });
@@ -123,9 +129,10 @@ export class TrainingsService {
         { priorityOrder: 'asc' },
         { createdAt: 'desc' }
       ],
-      include: { 
+      include: {
         platform: { select: { id: true, name: true } },
         documents: true,
+        resources: { include: { files: true }, orderBy: { position: 'asc' } },
         certificate: { select: { id: true, fileUrl: true } }
       },
     });
@@ -138,6 +145,7 @@ export class TrainingsService {
         platform: { select: { id: true, name: true } },
         certificate: true,
         documents: true,
+        resources: { include: { files: true }, orderBy: { position: 'asc' } },
       },
     });
     if (!record) throw new NotFoundException('Registo de formação não encontrado.');
@@ -162,9 +170,10 @@ export class TrainingsService {
         ...(dto.progressLevel !== undefined && { progressLevel: dto.progressLevel }),
         ...(dto.priorityOrder !== undefined && { priorityOrder: dto.priorityOrder }),
       },
-      include: { 
+      include: {
         platform: { select: { id: true, name: true } },
-        documents: true 
+        documents: true,
+        resources: { include: { files: true }, orderBy: { position: 'asc' } }
       },
     });
   }
@@ -192,9 +201,97 @@ export class TrainingsService {
     await this.findOne(userId, trainingId);
     const doc = await this.prisma.trainingDocument.findUnique({ where: { id: documentId } });
     if (!doc || doc.trainingId !== trainingId) throw new NotFoundException('Documento não encontrado.');
-    
+
+    if (doc.fileUrl) {
+      await this.storageService.deleteFile(doc.fileUrl, 'docs');
+    }
+
     await this.prisma.trainingDocument.delete({ where: { id: documentId } });
     return { message: 'Documento removido.' };
+  }
+
+
+  // --- Resource Management (Trello Board) ---
+
+  async addResource(userId: string, trainingId: string, dto: CreateResourceDto, files?: { fileUrl: string; fileName: string }[]) {
+    await this.findOne(userId, trainingId);
+    return this.prisma.trainingResource.create({
+      data: {
+        trainingId,
+        title: dto.title,
+        content: dto.content ?? '',
+        position: dto.position ?? 0,
+        ...(files && files.length > 0 ? {
+          files: {
+            create: files.map(f => ({
+              fileUrl: f.fileUrl,
+              fileName: f.fileName
+            }))
+          }
+        } : {})
+      },
+      include: { files: true }
+    });
+  }
+
+  async updateResource(userId: string, trainingId: string, resourceId: string, dto: UpdateResourceDto) {
+    await this.findOne(userId, trainingId);
+    const resource = await this.prisma.trainingResource.findUnique({ where: { id: resourceId } });
+    if (!resource || resource.trainingId !== trainingId) throw new NotFoundException('Recurso não encontrado.');
+
+    return this.prisma.trainingResource.update({
+      where: { id: resourceId },
+      data: {
+        ...(dto.title && { title: dto.title }),
+        ...(dto.content !== undefined && { content: dto.content }),
+        ...(dto.position !== undefined && { position: dto.position }),
+      },
+      include: { files: true }
+    });
+  }
+
+  async removeResource(userId: string, trainingId: string, resourceId: string) {
+    await this.findOne(userId, trainingId);
+    const resource = await this.prisma.trainingResource.findUnique({
+      where: { id: resourceId },
+      include: { files: true }
+    });
+    if (!resource || resource.trainingId !== trainingId) throw new NotFoundException('Recurso não encontrado.');
+
+    for (const file of resource.files) {
+      if (file.fileUrl) {
+        await this.storageService.deleteFile(file.fileUrl, 'docs');
+      }
+    }
+
+    await this.prisma.trainingResource.delete({ where: { id: resourceId } });
+    return { message: 'Recurso removido.' };
+  }
+
+  async addResourceFile(userId: string, trainingId: string, resourceId: string, fileUrl: string, fileName: string) {
+    await this.findOne(userId, trainingId);
+    const resource = await this.prisma.trainingResource.findUnique({ where: { id: resourceId } });
+    if (!resource || resource.trainingId !== trainingId) throw new NotFoundException('Recurso não encontrado.');
+
+    return this.prisma.resourceFile.create({
+      data: {
+        resourceId,
+        fileUrl,
+        fileName,
+      }
+    });
+  }
+
+  async removeResourceFile(userId: string, trainingId: string, resourceId: string, fileId: string) {
+    await this.findOne(userId, trainingId);
+    const file = await this.prisma.resourceFile.findUnique({ where: { id: fileId } });
+    if (!file || file.resourceId !== resourceId) throw new NotFoundException('Ficheiro não encontrado.');
+
+    if (file.fileUrl) {
+      await this.storageService.deleteFile(file.fileUrl, 'docs');
+    }
+    await this.prisma.resourceFile.delete({ where: { id: fileId } });
+    return { message: 'Ficheiro removido.' };
   }
 
   async getStats(userId: string) {

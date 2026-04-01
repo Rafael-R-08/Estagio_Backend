@@ -9,6 +9,7 @@ export interface SearchResult {
   metadata?: any;
   similarity: number;
   source: ChunkSource;
+  sourceId?: string;
   createdAt: Date;
 }
 
@@ -91,6 +92,7 @@ export class EmbeddingService implements OnModuleInit {
     topK: number = 5, 
     sourceFilter?: ChunkSource[]
   ): Promise<SearchResult[]> {
+    if (!query) return [];
     try {
       const queryEmbedding = await this.embed(query);
       const queryEmbeddingStr = `[${queryEmbedding.join(',')}]`;
@@ -106,7 +108,7 @@ export class EmbeddingService implements OnModuleInit {
 
       const querySql = `
         SELECT 
-          id, content, source, metadata, "createdAt",
+          id, content, source, "sourceId", metadata, "createdAt",
           (embedding <=> $1::vector) as distance
         FROM "text_chunks"
         ${whereClause}
@@ -120,6 +122,7 @@ export class EmbeddingService implements OnModuleInit {
         id: row.id,
         content: row.content,
         source: row.source,
+        sourceId: row.sourceId,
         metadata: row.metadata,
         similarity: 1 - (row.distance || 0),
         createdAt: row.createdAt

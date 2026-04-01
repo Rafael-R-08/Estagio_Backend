@@ -2,7 +2,7 @@ import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger, BadRequestException } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { join } from 'path';
 import { WinstonModule, utilities as nestWinstonModuleUtilities } from 'nest-winston';
@@ -54,7 +54,17 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
 
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      exceptionFactory: (errors) => {
+        const logger = new Logger('ValidationPipe');
+        logger.error(`Validation failed: ${JSON.stringify(errors, null, 2)}`);
+        return new BadRequestException(errors);
+      },
+    }),
+  );
 
   app.enableShutdownHooks();
 

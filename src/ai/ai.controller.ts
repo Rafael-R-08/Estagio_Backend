@@ -21,12 +21,12 @@ import { AiService } from './services/ai.service';
 import { IndexingService } from './services/indexing.service';
 import { RecommendationService } from './services/recommendation.service';
 import { RagService } from './services/rag.service';
+import { ConversationService } from './services/conversation.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
-
 import { Public } from '../common/decorators/public.decorator';
 
 @ApiTags('AI & Knowledge')
@@ -40,116 +40,98 @@ export class AiController {
     private readonly indexingService: IndexingService,
     private readonly recommendationService: RecommendationService,
     private readonly ragService: RagService,
+    private readonly conversationService: ConversationService,
   ) { }
 
   @Get('health')
   @Public()
-  @ApiOperation({ summary: 'Verifica o estado de saúde do motor de IA (Health Check)' })
+  @ApiOperation({ summary: 'Verifica saúde da IA (Groq + pgvector)' })
   async health() {
-    const start = Date.now();
-    try {
-      // Teste simples de embedding
-      await this.embeddingService.embed('health check');
-      const ragStats = await this.embeddingService.getStats();
-
-      return {
-        status: 'UP',
-        engine: 'llama-3.3-70b-versatile',
-        embeddingModel: 'xenova-384d',
-        ragStats,
-        latency_ms: Date.now() - start,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      return {
-        status: 'DOWN',
-        error: error.message,
-        timestamp: new Date().toISOString()
-      };
-    }
-  }
-
-  @Post('generate')
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @ApiOperation({ summary: 'Gera texto via LLM (Autenticado)' })
-  async generate(@CurrentUser() userId: string, @Body() dto: { prompt: string; model?: string }) {
-    return this.aiService.generateText(dto.prompt, { userId }, dto.model);
-  }
-
-  @Post('embed')
-  @Throttle({ default: { limit: 20, ttl: 60000 } })
-  @ApiOperation({ summary: 'Gera embedding para um texto' })
-  async embed(@Body() dto: { text: string }) {
-    const embedding = await this.embeddingService.embed(dto.text);
-    return { embedding, dimensions: embedding.length };
-  }
-
-  @Post('index-chunk')
-  @Roles('ADMIN')
-  @ApiOperation({ summary: 'Indexa manualmente um chunk (Admin)' })
-  async indexChunk(@Body() dto: { content: string; source?: any; metadata?: any }) {
-    return this.embeddingService.indexChunk(dto.content, dto.source, undefined, dto.metadata);
-  }
-
-  @Get('search-chunks')
-  @Roles('ADMIN')
-  @ApiOperation({ summary: 'Pesquisa direta no vector store (Admin)' })
-  async searchChunks(@Query('q') query: string, @Query('limit') limit?: string) {
-    return this.embeddingService.searchSimilar(query, limit ? parseInt(limit, 10) : 5);
-  }
-
-  @Get('chunks')
-  @Roles('ADMIN')
-  @ApiOperation({ summary: 'Lista chunks (Admin)' })
-  async listChunks(@Query('limit') limit?: string) {
-    return this.embeddingService.listChunks(limit ? parseInt(limit, 10) : 10);
-  }
-
-  @Delete('chunks')
-  @Roles('ADMIN')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Limpa todo o vector store (Admin)' })
-  async deleteAllChunks() {
-    await this.embeddingService.deleteAll();
-  }
-
-  @Delete('chunks/:id')
-  @Roles('ADMIN')
-  @HttpCode(HttpStatus.OK)
-  async deleteChunk(@Param('id') id: string) {
-    return this.embeddingService.deleteChunk(id);
-  }
-
-  @Get('indexing-stats')
-  @Roles('ADMIN')
-  @ApiOperation({ summary: 'Estatísticas de indexação' })
-  async getIndexingStats() {
-    return this.indexingService.getIndexingStats();
+    const ragStats = await this.embeddingService.getStats();
+    return {
+      status: 'UP',
+      engine: 'Groq Llama 3.3',
+      embeddingModel: 'Xenova 384d',
+      ragStats,
+    };
   }
 
   @Post('recommendations')
-  @Throttle({ default: { limit: 3, ttl: 60000 } })
-  @ApiOperation({ summary: 'Gera recomendações personalizadas RAG' })
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: 'Gera recomendações personalizadas ultra-precisas' })
   async getRecommendations(@CurrentUser() userId: string) {
     return this.recommendationService.recommendForUser(userId);
   }
 
+  @Post('recommendations/welcome')
+  @Get('recommendations/welcome')
+  @Public()
+  @ApiOperation({ summary: 'Obtém a mensagem de boas-vindas do assistente' })
+  async getWelcome(@CurrentUser() userId?: string) {
+    const welcome = await this.ragService.getWelcomeMessage(userId);
+    return { welcome };
+  }
 
+  /**
+   * --- CHAT & CONVERSAÇÕES ---
+   */
 
   @Post('chat/stream')
   @Sse()
-  @ApiOperation({ summary: 'Chat em tempo real via SSE (Streaming + RAG)' })
+  @ApiOperation({ summary: 'Chat SSE com memória e busca híbrida' })
   async streamChat(
     @CurrentUser() userId: string,
-    @Body() dto: { prompt: string; model?: string }
+    @Body() dto: { prompt: string; conversationId?: string }
   ): Promise<Observable<MessageEvent>> {
     const stream = await this.ragService.queryStream(dto.prompt, {
-      model: dto.model,
+      conversationId: dto.conversationId,
       generateOptions: { userId },
     });
 
     return stream.pipe(
       map(data => ({ data } as MessageEvent)),
     );
+  }
+
+  @Post('chat')
+  @ApiOperation({ summary: 'Chat síncrono (não-stream)' })
+  async simpleChat(
+    @CurrentUser() userId: string,
+    @Body() dto: { prompt: string; conversationId?: string }
+  ) {
+    return this.ragService.query(dto.prompt, {
+      conversationId: dto.conversationId,
+      generateOptions: { userId },
+    });
+  }
+
+  @Get('conversations')
+  @ApiOperation({ summary: 'Lista conversas do utilizador' })
+  async listConversations(@CurrentUser() userId: string) {
+    return this.conversationService.listUserConversations(userId);
+  }
+
+  @Delete('conversations/:id')
+  @ApiOperation({ summary: 'Apaga uma conversa' })
+  async deleteConversation(@CurrentUser() userId: string, @Param('id') id: string) {
+    await this.conversationService.deleteConversation(id, userId);
+    return { status: 'deleted' };
+  }
+
+  /**
+   * --- ADMIN & INDEXING ---
+   */
+
+  @Get('indexing-stats')
+  @Roles('ADMIN')
+  async getIndexingStats() {
+    return this.indexingService.getIndexingStats();
+  }
+
+  @Delete('chunks')
+  @Roles('ADMIN')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteAllChunks() {
+    await this.embeddingService.deleteAll();
   }
 }

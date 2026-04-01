@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEnum, IsNotEmpty, IsString, IsArray, IsOptional, ValidateNested, IsInt, Min } from 'class-validator';
-import { Type } from 'class-transformer';
-import { ServiceLine, ExperienceLevel } from '@prisma/client';
+import { Transform, Type } from 'class-transformer';
+import { ServiceLine, ExperienceLevel, SkillLevel } from '@prisma/client';
 
 class SkillDto {
   @ApiProperty()
@@ -9,15 +9,22 @@ class SkillDto {
   @IsNotEmpty()
   skillName: string;
 
-  @ApiProperty()
-  @IsInt()
-  @Min(0)
-  yearsOfExperience: number;
-
-  @ApiProperty()
-  @IsString()
+  @Transform(({ value }) => {
+    const map: Record<string, SkillLevel> = {
+      beginner: SkillLevel.iniciante,
+      iniciante: SkillLevel.iniciante,
+      intermediate: SkillLevel.intermedio,
+      intermedio: SkillLevel.intermedio,
+      advanced: SkillLevel.experiente,
+      experiente: SkillLevel.experiente,
+      expert: SkillLevel.experiente,
+    };
+    return map[value?.toLowerCase()] || value;
+  })
+  @ApiProperty({ enum: SkillLevel })
   @IsNotEmpty()
-  level: string; // 'beginner', 'intermediate', 'advanced'
+  @IsEnum(SkillLevel)
+  level: SkillLevel;
 }
 
 export class OnboardingDto {
@@ -45,5 +52,9 @@ export class OnboardingDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => SkillDto)
+  @Transform(({ value }) => {
+    if (!Array.isArray(value)) return value;
+    return value.filter(s => s && s.skillName && s.skillName.trim() !== "");
+  })
   skills: SkillDto[];
 }

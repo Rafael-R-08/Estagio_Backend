@@ -1,14 +1,17 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsUrl } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class AddDocumentDto {
-  @ApiProperty({ example: 'https://example.com/notes.pdf' })
-  @IsNotEmpty()
-  @IsUrl()
-  fileUrl: string;
-
-  @ApiProperty({ example: 'Notas de Aula.pdf' })
-  @IsNotEmpty()
+  @Transform(({ obj, value }) => value || obj.url || obj.link || obj.path || obj.fileUrl)
+  @ApiPropertyOptional({ example: 'https://example.com/notes.pdf' })
+  @IsOptional()
   @IsString()
-  fileName: string;
+  fileUrl?: string;
+
+  @Transform(({ obj, value }) => value || obj.name || obj.title || obj.fileName)
+  @ApiPropertyOptional({ example: 'Notas de Aula.pdf' })
+  @IsOptional()
+  @IsString()
+  fileName?: string;
 }

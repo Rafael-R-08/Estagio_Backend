@@ -9,6 +9,7 @@ import {
   Min,
   Max,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { TrainingStatus } from '@prisma/client';
 
 export class CreateTrainingDto {
@@ -52,11 +53,13 @@ export class CreateTrainingDto {
 
   @ApiPropertyOptional({ example: 1, description: 'Ordem de prioridade para cursos guardados' })
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   priorityOrder?: number;
 
   @ApiPropertyOptional({ example: 4, description: 'Rating de 1 a 5' })
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(5)
@@ -64,6 +67,7 @@ export class CreateTrainingDto {
 
   @ApiPropertyOptional({ example: 4, description: 'Relevância de 1 a 5' })
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(5)

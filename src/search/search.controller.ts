@@ -45,6 +45,16 @@ export class SearchController {
     return this.searchService.getRelatedCourses(externalId);
   }
 
+  @Get('semantic')
+  @ApiOperation({
+    summary: 'Pesquisa puramente semântica via Vector Store',
+    description: 'Procura cursos por significado usando embeddings de IA diretamente na base de dados de vetores.',
+  })
+  async semanticSearch(@Query() dto: SearchQueryDto, @Req() req: AuthRequest) {
+    const userId = req.user?.userId;
+    return this.searchService.semanticSearch(dto, userId);
+  }
+
   @Get()
   @ApiOperation({
     summary: 'Pesquisa unificada em todas as plataformas activas',

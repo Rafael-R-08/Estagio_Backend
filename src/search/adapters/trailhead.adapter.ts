@@ -1,197 +1,136 @@
-import { Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom, timeout } from 'rxjs';
+import * as cheerio from 'cheerio';
+import { BasePlatformAdapter } from './base-platform.adapter';
+import { CacheService } from '../../cache/cache.service';
 import type {
   CourseResult,
-  IPlatformAdapter,
-  PlatformConfig,
 } from '../interfaces/platform-adapter.interface';
 
-interface SalesforceTokenResponse {
-  access_token: string;
-  instance_url: string;
-  token_type: string;
-  issued_at: string;
-}
+const SEARCH_URL = 'https://trailhead.salesforce.com/en/search';
+const BASE_URL = 'https://trailhead.salesforce.com';
 
-interface SFSoslSearchResult {
-  searchRecords?: Array<Record<string, unknown>>;
-}
-
-/**
- * Trailhead Adapter — Salesforce OAuth 2.0 + REST API (Option D)
- *
- * Requires the following fields in `LearningPlatform.config` (JSON):
- *   - clientId       → Connected App Consumer Key
- *   - clientSecret   → Connected App Consumer Secret
- *   - instanceUrl    → e.g. "https://mydomain.my.salesforce.com" (optional, falls back to login.salesforce.com)
- *
- * Flow:
- *  1. Request access token via client_credentials OAuth grant.
- *  2. Cache token in memory (expires in ~1h, re-fetched when needed).
- *  3. Run SOSL search against TrailheadModule__c (or similar) objects.
- */
-export class TrailheadAdapter implements IPlatformAdapter {
+@Injectable()
+export class TrailheadAdapter extends BasePlatformAdapter {
   readonly platformName = 'Trailhead';
-  private readonly logger = new Logger(TrailheadAdapter.name);
-
-  private cachedToken: string | null = null;
-  private tokenExpiresAt: number = 0;
-  private cachedInstanceUrl: string | null = null;
-
-  private readonly SF_API_VERSION = 'v62.0';
-  private readonly LOGIN_URL = 'https://login.salesforce.com';
-  private readonly TOKEN_BUFFER_MS = 5 * 60 * 1000; // 5 min early refresh
+  protected readonly logger = new Logger(TrailheadAdapter.name);
 
   constructor(
     private readonly http: HttpService,
-    private readonly platform: PlatformConfig,
-  ) {}
+    cache: CacheService,
+  ) {
+    super(cache, { id: 'trailhead', name: 'Trailhead', config: {} });
+  }
 
-  // ─── Public Search ───────────────────────────────────────────────────────
-
-  async search(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number; minRelevance?: number }): Promise<CourseResult[]> {
-    if (filters?.isFree === false) return []; // Trailhead é 100% gratuito
-
-    const cfg = this.platform.config as Record<string, string>;
-    const { clientId, clientSecret } = cfg;
-
-    if (!clientId || !clientSecret) {
-      this.logger.warn(
-        `[Trailhead] clientId / clientSecret não configurados. Ignorando pesquisa.`,
-      );
-      return [];
-    }
+  async fetchResults(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number; minRelevance?: number }): Promise<CourseResult[]> {
+    if (filters?.isFree === false) return []; // Trailhead é gratuito
 
     try {
-      this.logger.log(`[Trailhead] A pesquisar: "${query}"`);
+      const response = await firstValueFrom(
+        this.http
+          .get<string>(SEARCH_URL, {
+            params: { keywords: query },
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+              Accept: 'text/html,application/xhtml+xml',
+            },
+            responseType: 'text',
+          })
+          .pipe(timeout(15_000)),
+      );
 
-      const token = await this.getAccessToken(clientId, clientSecret, cfg.instanceUrl);
-      const instanceUrl = this.cachedInstanceUrl ?? (cfg.instanceUrl || this.LOGIN_URL);
-
-      const results = await this.soslSearch(instanceUrl, token, query, limit);
-      return results;
-    } catch (error: any) {
-      this.logger.error(`[Trailhead] Erro ao pesquisar: ${String(error?.message ?? error)}`);
+      return this.parseHtml(response.data).slice(0, limit);
+    } catch (error: unknown) {
+      this.logger.error(`[Trailhead] Erro ao pesquisar: ${String(error)}`);
       return [];
     }
   }
 
-  // ─── OAuth Token ─────────────────────────────────────────────────────────
+  private parseHtml(html: string): CourseResult[] {
+    const $ = cheerio.load(html);
+    const results: CourseResult[] = [];
+    const seen = new Set<string>();
 
-  private async getAccessToken(
-    clientId: string,
-    clientSecret: string,
-    instanceUrl?: string,
-  ): Promise<string> {
-    const now = Date.now();
+    // Trailhead search results are often inside cards
+    $('.th-card, [data-testid="search-result-card"], article').each((_, el) => {
+      const card = $(el);
+      const titleEl = card.find('h3, [data-testid="card-title"], .th-card__title, a').first();
+      const title = titleEl.text().trim();
+      
+      if (!title || seen.has(title)) return;
+      
+      const link = card.find('a[href*="/content/learn/"]').attr('href') || card.find('a').attr('href');
+      if (!link) return;
 
-    if (this.cachedToken && now < this.tokenExpiresAt - this.TOKEN_BUFFER_MS) {
-      return this.cachedToken;
-    }
+      const url = link.startsWith('http') ? link : `${BASE_URL}${link}`;
+      const description = card.find('.th-card__description, [data-testid="card-description"], p').text().trim();
+      
+      const meta = card.text().toLowerCase();
+      
+      const level: CourseResult['level'] = 
+        meta.includes('beginner') ? 'beginner' :
+        meta.includes('intermediate') ? 'intermediate' :
+        meta.includes('advanced') ? 'advanced' : undefined;
 
-    const loginUrl = instanceUrl || this.LOGIN_URL;
-    const tokenUrl = `${loginUrl}/services/oauth2/token`;
+      const timeMatch = meta.match(/(\d+)\s*(mins?|hrs?|hours?)/);
+      let durationHours: number | undefined = undefined;
+      if (timeMatch) {
+        const val = parseInt(timeMatch[1], 10);
+        const unit = timeMatch[2];
+        durationHours = unit.startsWith('m') ? val / 60 : val;
+      }
 
-    const params = new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: clientId,
-      client_secret: clientSecret,
+      const tags: string[] = [];
+      card.find('.th-card__tags span, [data-testid="card-tag"], .badge').each((_, tagEl) => {
+        const tag = $(tagEl).text().trim();
+        if (tag) tags.push(tag);
+      });
+
+      const slug = url.split('/').filter(Boolean).pop() ?? title.toLowerCase().replace(/\s+/g, '-');
+
+      seen.add(title);
+      results.push({
+        externalId: `trailhead:${slug.slice(0, 60)}`,
+        title,
+        description: description.slice(0, 500),
+        url,
+        level,
+        durationHours: durationHours ? parseFloat(durationHours.toFixed(2)) : undefined,
+        isFree: true,
+        tags,
+        platformId: this.platform.id,
+        platformName: this.platformName,
+      });
     });
 
-    const response = await firstValueFrom(
-      this.http
-        .post<SalesforceTokenResponse>(tokenUrl, params.toString(), {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        })
-        .pipe(timeout(10_000)),
-    );
+    // Strategy fallback: JSON-LD
+    if (results.length === 0) {
+      $('script[type="application/ld+json"]').each((_, el) => {
+        try {
+          const json = JSON.parse($(el).html() || '{}');
+          const items = json.itemListElement || (json['@type'] === 'ItemList' ? json.itemListElement : []);
+          
+          for (const listItem of items) {
+            const item = listItem.item || listItem;
+            if (item && item.name && !seen.has(item.name)) {
+              seen.add(item.name);
+              results.push({
+                externalId: `trailhead:${(item.url || '').split('/').pop() || item.name}`,
+                title: item.name,
+                description: item.description || '',
+                url: item.url?.startsWith('http') ? item.url : `${BASE_URL}${item.url}`,
+                isFree: true,
+                tags: [],
+                platformId: this.platform.id,
+                platformName: this.platformName,
+              });
+            }
+          }
+        } catch { }
+      });
+    }
 
-    const { access_token, instance_url, issued_at } = response.data;
-
-    this.cachedToken = access_token;
-    this.cachedInstanceUrl = instance_url;
-    // Salesforce tokens last 1 hour (3600s). `issued_at` is a Unix ms timestamp.
-    this.tokenExpiresAt = Number(issued_at) + 3600 * 1000;
-
-    this.logger.log(`[Trailhead] Token OAuth obtido. Instância: ${instance_url}`);
-    return access_token;
-  }
-
-  // ─── SOSL Search ─────────────────────────────────────────────────────────
-
-  /**
-   * Searches using Salesforce SOSL (Salesforce Object Search Language).
-   * Example: FIND {apex} IN ALL FIELDS RETURNING TrailheadModule__c(Name,Description__c,URL__c)
-   *
-   * Note: The exact Salesforce Object and field names depend on your org's schema.
-   * The query below targets the most common object names used in enabled myTrailhead orgs.
-   */
-  private async soslSearch(
-    instanceUrl: string,
-    token: string,
-    query: string,
-    limit: number,
-  ): Promise<CourseResult[]> {
-    const escapedQuery = query.replace(/['"]/g, ' ').trim();
-
-    // Build SOSL query — searches TrailheadModule__c if available, falls back to broader search
-    const sosl = [
-      `FIND {${escapedQuery}} IN ALL FIELDS`,
-      `RETURNING TrailheadModule__c(Id, Name, Description__c, URL__c, DurationMinutes__c, Level__c LIMIT ${limit})`,
-    ].join(' ');
-
-    const url = `${instanceUrl}/services/data/${this.SF_API_VERSION}/search/`;
-
-    const response = await firstValueFrom(
-      this.http
-        .get<SFSoslSearchResult>(url, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/json',
-          },
-          params: { q: sosl },
-        })
-        .pipe(timeout(15_000)),
-    );
-
-    const records = response.data?.searchRecords ?? [];
-    return records.map((r) => this.normalize(r));
-  }
-
-  // ─── Normalize ───────────────────────────────────────────────────────────
-
-  private normalize(item: Record<string, unknown>): CourseResult {
-    const rawUrl = String(item['URL__c'] ?? '');
-    const url = rawUrl.startsWith('http')
-      ? rawUrl
-      : `https://trailhead.salesforce.com${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
-
-    const rawLevel = String(item['Level__c'] ?? '').toLowerCase();
-    const level: CourseResult['level'] = rawLevel.includes('beginner')
-      ? 'beginner'
-      : rawLevel.includes('advanced')
-        ? 'advanced'
-        : rawLevel.includes('intermediate')
-          ? 'intermediate'
-          : undefined;
-
-    const durationMinutes = Number(item['DurationMinutes__c']);
-    const durationHours = durationMinutes > 0
-      ? parseFloat((durationMinutes / 60).toFixed(2))
-      : undefined;
-
-    return {
-      externalId: `trailhead:${String(item['Id'] ?? Buffer.from(url).toString('base64').slice(0, 30))}`,
-      title: String(item['Name'] ?? 'Módulo Trailhead'),
-      description: String(item['Description__c'] ?? ''),
-      url,
-      level,
-      durationHours,
-      isFree: true,
-      tags: [],
-      platformId: this.platform.id,
-      platformName: this.platformName,
-    };
+    return results;
   }
 }

@@ -1,5 +1,6 @@
 // src/cache/cache.service.ts
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { createClient, RedisClientType } from 'redis';
 
 @Injectable()
@@ -11,14 +12,17 @@ export class CacheService implements OnModuleDestroy {
   // Cache em memória como fallback
   private readonly memoryCache = new Map<string, { value: string; expiresAt: number }>();
 
-  constructor() {
+  constructor(private readonly configService: ConfigService) {
     void this.connectRedis();
   }
 
   private async connectRedis() {
     try {
+      const redisConfig = this.configService.get('redis');
+      const url = `redis://${redisConfig.password ? `:${redisConfig.password}@` : ''}${redisConfig.host}:${redisConfig.port}`;
+
       this.redis = createClient({
-        url: process.env.REDIS_URL || 'redis://localhost:6379',
+        url,
       }) as RedisClientType;
 
       this.redis.on('error', (err) => {

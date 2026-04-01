@@ -1,60 +1,39 @@
 /**
  * src/ai/templates/analysis.template.ts
- * Templates compactados para Llama 3.3 (Audit Production).
+ * Templates unificados para análise e classificação de cursos.
  */
 
-export interface CourseInput {
-  title: string;
-  description?: string;
-  skills?: string[];
-  duration?: string;
-  rating?: number;
-  category?: string;
-  platform?: string;
+export function buildFullCourseAnalysisPrompt(course: any): string {
+  return `Tarefa: Análise e Classificação Profissional de Curso.
+Curso Original: "${course.title}"
+Descrição Disponível: "${course.description || 'N/A'}"
+Plataforma: ${course.platform?.name || 'Geral'}
+
+Cadeia de Pensamento:
+1. Resume o curso de forma profissional.
+2. Identifica os 5 principais tópicos abordados.
+3. Classifica o curso por Tipo (Technical, Soft Skills, Business, etc).
+4. Determina o Nível (Beginner, Intermediate, Advanced).
+5. Indica o Perfil Ideal de quem deve fazer este curso na Softinsa.
+
+Retorna APENAS um JSON válido.
+{
+  "summary": "Resumo executivo em PT-PT.",
+  "simplifiedDescription": "Explicação para quem não é da área.",
+  "mainTopics": ["Topico 1", "Topico 2", "etc"],
+  "classification": {
+    "type": "Categoria",
+    "level": "Nivel",
+    "targetProfile": ["Funcao 1", "Funcao 2"]
+  }
+}`.trim();
 }
 
-export function buildSummaryPrompt(course: CourseInput, lang: string = 'pt'): string {
-  const isEn = lang.toLowerCase() === 'en';
-  return `Role: Softinsa Training Expert. Task: Generate 3-sentence MAX summary.
-Language: ${isEn ? 'English' : 'Portuguese (Portugal)'}. Focus on practical benefit.
-
-Course: ${course.title}
-Platform: ${course.platform || 'not specified'}
-Description: ${course.description || 'not available'}
-
-Summary:`.trim();
-}
-
-export function buildTopicsPrompt(course: CourseInput, lang: string = 'pt'): string {
-  const isEn = lang.toLowerCase() === 'en';
-  return `Task: Extract 5 main topics. Language: ${isEn ? 'English' : 'Portuguese (Portugal)'}.
-Respond ONLY with a JSON array of strings. 
-Example: ["T1","T2","T3"]
-
-Course: ${course.title}
-Desc: ${course.description || 'n/a'}
-
-Topics:`.trim();
-}
-
-export function buildClassificationPrompt(course: CourseInput, lang: string = 'pt'): string {
-  const isEn = lang.toLowerCase() === 'en';
-  return `Task: Classify course in JSON. Fields: type, level, targetProfile(array).
-Types: technical, softskills, cloud, security, data, devops, management, other.
-Levels: beginner, intermediate, advanced.
-Profiles: junior, mid, senior, lead.
-
-Course: ${course.title}
-Classification:`.trim();
-}
-
-export function buildSimplifyPrompt(course: CourseInput, lang: string = 'pt'): string {
-  const isEn = lang.toLowerCase() === 'en';
-  return `Task: Simplify description for accessibility. MAX 2 sentences. 
-Language: ${isEn ? 'English' : 'Portuguese (Portugal)'}. Focus on benefit.
-
-Course: ${course.title}
-Original: ${course.description || 'n/a'}
-
-Simplified:`.trim();
-}
+/** 
+ * Mantidos para compatibilidade temporária se necessário, 
+ * mas a recomendação é usar buildFullCourseAnalysisPrompt. 
+ */
+export const buildSummaryPrompt = (c: any) => `Resumo executivo do curso: ${c.title}`;
+export const buildTopicsPrompt = (c: any) => `Tópicos principais do curso: ${c.title}`;
+export const buildClassificationPrompt = (c: any) => `Classifica o curso: ${c.title}`;
+export const buildSimplifyPrompt = (c: any) => `Explica o que é o curso de forma simples: ${c.title}`;

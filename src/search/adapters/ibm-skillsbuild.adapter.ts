@@ -1,10 +1,10 @@
-import { Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom, timeout } from 'rxjs';
+import { BasePlatformAdapter } from './base-platform.adapter';
+import { CacheService } from '../../cache/cache.service';
 import type {
   CourseResult,
-  IPlatformAdapter,
-  PlatformConfig,
 } from '../interfaces/platform-adapter.interface';
 
 const BASE_URL = 'https://skillsbuild.org';
@@ -19,34 +19,29 @@ const LEVEL_MAP: Record<string, CourseResult['level']> = {
   professional: 'advanced',
 };
 
-export class IbmSkillsBuildAdapter implements IPlatformAdapter {
+@Injectable()
+export class IbmSkillsBuildAdapter extends BasePlatformAdapter {
   readonly platformName = 'IBM SkillsBuild';
-  private readonly logger = new Logger(IbmSkillsBuildAdapter.name);
-
-  /** Cache em memória do catálogo completo (validade 2h) */
-  private cachedCourses: CourseResult[] = [];
-  private cacheExpiry = 0;
-  private readonly CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 horas
+  protected readonly logger = new Logger(IbmSkillsBuildAdapter.name);
 
   constructor(
     private readonly http: HttpService,
-    private readonly platform: PlatformConfig,
-  ) {}
+    cache: CacheService,
+  ) {
+    super(cache, { id: 'ibm', name: 'IBM SkillsBuild', config: {} });
+  }
 
-  async search(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number; minRelevance?: number }): Promise<CourseResult[]> {
+  async fetchResults(query: string, limit: number, filters?: { isFree?: boolean; minRating?: number; minRelevance?: number }): Promise<CourseResult[]> {
     if (filters?.isFree === false) return []; // IBM SkillsBuild é gratuito
 
     const allCourses = await this.getAllCourses();
-    this.logger.log(`[IBM SkillsBuild] Total em cache: ${allCourses.length}`);
-
     if (allCourses.length === 0) return [];
 
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
 
-    const scored = allCourses
+    return allCourses
       .map((c) => {
-        const haystack =
-          `${c.title} ${c.description} ${c.tags.join(' ')}`.toLowerCase();
+        const haystack = `${c.title} ${c.description} ${c.tags.join(' ')}`.toLowerCase();
         const matchCount = terms.filter((t) => haystack.includes(t)).length;
         return { ...c, _score: matchCount };
       })
@@ -54,23 +49,11 @@ export class IbmSkillsBuildAdapter implements IPlatformAdapter {
       .sort((a, b) => b._score - a._score)
       .slice(0, limit)
       .map(({ _score: _, ...rest }) => rest);
-
-    this.logger.log(
-      `[IBM SkillsBuild] "${query}" → ${scored.length} resultados`,
-    );
-    return scored;
   }
 
-  // ─── Fetch + Cache ─────────────────────────────────────────────────────
-
   private async getAllCourses(): Promise<CourseResult[]> {
-    if (this.cachedCourses.length > 0 && Date.now() < this.cacheExpiry) {
-      return this.cachedCourses;
-    }
-
     const catalogUrl = this.platform.apiEndpoint || CATALOG_URL;
-    this.logger.log(`[IBM SkillsBuild] A fazer scraping de ${catalogUrl}`);
-
+    
     try {
       const response = await firstValueFrom(
         this.http
@@ -86,27 +69,18 @@ export class IbmSkillsBuildAdapter implements IPlatformAdapter {
           .pipe(timeout(20_000)),
       );
 
-      const courses = this.parseHtml(response.data);
-      this.logger.log(`[IBM SkillsBuild] Parsed ${courses.length} cursos`);
-
-      if (courses.length > 0) {
-        this.cachedCourses = courses;
-        this.cacheExpiry = Date.now() + this.CACHE_TTL_MS;
-      }
+      return this.parseHtml(response.data);
     } catch (error: unknown) {
-      this.logger.error(`[IBM SkillsBuild] Erro HTTP: ${String(error)}`);
+      this.logger.error(`[IBM SkillsBuild] Erro HTTP ao obter catálogo: ${String(error)}`);
+      return [];
     }
-
-    return this.cachedCourses;
   }
-
-  // ─── HTML Parsing ──────────────────────────────────────────────────────
 
   private parseHtml(html: string): CourseResult[] {
     const results: CourseResult[] = [];
     const seen = new Set<string>();
 
-    // Extrair links de cursos (URLs que contêm /course/ ou /learning-journey/)
+    // Extrair links de cursos
     const urlMap = new Map<string, string>();
     const linkRegex = /href=["']((?:https?:\/\/skillsbuild\.org)?\/(?:learn\/digital-credentials\/[^"'\s]+|courses\/[^"'\s]+|course\/[^"'\s]+))['"]/gi;
     let linkMatch: RegExpExecArray | null;
@@ -117,7 +91,6 @@ export class IbmSkillsBuildAdapter implements IPlatformAdapter {
       urlMap.set(key, url);
     }
 
-    // Limpar HTML para parse de texto
     const text = html
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -125,14 +98,8 @@ export class IbmSkillsBuildAdapter implements IPlatformAdapter {
       .replace(/<[^>]+>/g, ' ')
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&[a-z]+;/gi, ' ')
-      .replace(/[ \t]+/g, ' ')
-      .replace(/\n\s*\n/g, '\n')
       .trim();
 
-    // IBMSkillsBuild tem JSON-LD em muitas páginas com dados estruturados
     const jsonLdMatches = html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
     for (const match of jsonLdMatches) {
       try {
@@ -157,14 +124,10 @@ export class IbmSkillsBuildAdapter implements IPlatformAdapter {
             item.timeRequired,
           ));
         }
-      } catch {
-        // JSON inválido, continuar
-      }
+      } catch { }
     }
 
-    // Se não encontrou JSON-LD, tenta scraping de texto (fallback)
     if (results.length === 0) {
-      // Procurar padrões de nível no texto: "Beginner · 2 hours" ou "Intermediate | 45 min"
       const metaRegex = /(Beginner|Intermediate|Advanced|Getting started|Foundations|Professional)\s*[·|]\s*(\d+)\s*(hour|hr|min)/gi;
       let match: RegExpExecArray | null;
 
@@ -229,7 +192,6 @@ export class IbmSkillsBuildAdapter implements IPlatformAdapter {
 
     let durationHours: number | undefined;
     if (timeRequired) {
-      // ISO 8601 duration e.g. "PT2H30M" or parse plain "2H"
       const hoursMatch = String(timeRequired).match(/(\d+)H/i);
       const minsMatch = String(timeRequired).match(/(\d+)M/i);
       if (hoursMatch || minsMatch) {

@@ -1,7 +1,7 @@
 import { IsOptional, IsString, IsEnum, IsArray, ValidateNested, IsInt, Min, IsNotEmpty } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
-import { ServiceLine, ExperienceLevel } from '@prisma/client';
+import { ServiceLine, ExperienceLevel, SkillLevel } from '@prisma/client';
 
 class SkillUpdateDto {
   @ApiProperty()
@@ -9,15 +9,22 @@ class SkillUpdateDto {
   @IsNotEmpty()
   skillName: string;
 
-  @ApiProperty()
-  @IsInt()
-  @Min(0)
-  yearsOfExperience: number;
-
-  @ApiProperty()
-  @IsString()
+  @Transform(({ value }) => {
+    const map: Record<string, SkillLevel> = {
+      beginner: SkillLevel.iniciante,
+      iniciante: SkillLevel.iniciante,
+      intermediate: SkillLevel.intermedio,
+      intermedio: SkillLevel.intermedio,
+      advanced: SkillLevel.experiente,
+      experiente: SkillLevel.experiente,
+      expert: SkillLevel.experiente,
+    };
+    return map[value?.toLowerCase()] || value;
+  })
+  @ApiProperty({ enum: SkillLevel })
   @IsNotEmpty()
-  level: string;
+  @IsEnum(SkillLevel)
+  level: SkillLevel;
 }
 
 export class UpdateProfileDto {

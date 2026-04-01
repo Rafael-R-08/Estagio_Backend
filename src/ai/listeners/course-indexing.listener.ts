@@ -12,7 +12,7 @@ export class CourseIndexingListener {
 
   @OnEvent('course.created')
   async handleCourseCreated(event: CourseCreatedEvent) {
-    this.logger.debug(`Evento 'course.created' recebido para: ${event.courseId}`);
+    this.logger.debug(`Evento 'course.created' recebido para: ${event.externalId}`);
     try {
       await this.indexingService.indexCourse(event);
     } catch (error) {

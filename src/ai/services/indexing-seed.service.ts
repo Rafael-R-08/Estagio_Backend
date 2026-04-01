@@ -35,8 +35,9 @@ export class IndexingSeedService implements OnModuleInit {
       });
       
       const courseEvents = courses.map(c => new CourseCreatedEvent(
-        c.id, 
-        c.title, 
+        c.externalId, 
+        c.platformId, 
+        c.title,
         c.description, 
         c.platform?.name || 'Unknown', 
         c.tags?.[0] || 'Geral', 

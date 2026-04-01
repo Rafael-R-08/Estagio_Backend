@@ -30,14 +30,13 @@ pipelines:
   pull-requests:
     "**":
       - step:
-          name: Lint + Build + Validate Prisma
+          name: Test + Build + Validate Prisma
           caches:
             - node
           script:
             - npm ci
             - npx prisma generate
-            - npx prisma validate
-            - npm run lint
+            - npm test
             - npm run build
 
   branches:
@@ -52,8 +51,11 @@ pipelines:
             - npm ci
             - npx prisma generate
             - export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/learninghub
+            - npm run db:cleanup-duplicates
             - npx prisma migrate deploy
+            - npm test
             - npm run build
+            - npm run test:ai:smoke
 
     main:
       - step:

@@ -155,7 +155,6 @@ export class CertificatesController {
    * GET /certificates/job/:id
    * Consultar estado de um job no BullMQ
    */
-  @Public()
   @Get('job/:id')
   @ApiOperation({ summary: 'Consultar estado do processamento de PDF' })
   @ApiResponse({ status: 200, description: 'Estado do job (queued, processing, completed, failed)' })
@@ -167,7 +166,6 @@ export class CertificatesController {
    * GET /certificates/job/:id/stream
    * Stream de eventos via SSE para um job específico
    */
-  @Public()
   @Sse('job/:id/stream')
   @ApiOperation({ summary: 'Subscrever updates em tempo real do processamento do PDF' })
   streamJobStatus(@Param('id') id: string): Observable<MessageEvent> {

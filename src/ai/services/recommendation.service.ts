@@ -20,7 +20,11 @@ export class RecommendationService {
   /**
    * Gera recomendações personalizadas ultra-precisas usando RAG + Perfil Rico.
    */
-  async recommendForUser(userId?: string): Promise<RecommendationOutput & { metadata: any }> {
+  async recommendForUser(
+    userId?: string,
+    customQuery?: string,
+    topK = 12,
+  ): Promise<RecommendationOutput & { metadata: any }> {
     this.logger.log(`Gerando recomendações enterprise para: ${userId || 'Anónimo'}`);
 
     if (!userId) {
@@ -64,9 +68,9 @@ export class RecommendationService {
     const interestsStr = user.interests?.join(', ') || 'TI Geral';
     const skillsStr = user.skills?.map(s => `${s.skillName} (${s.level})`).join(', ') || 'Nenhuma definida';
     
-    const ragQuery = lang === 'en' 
+    const ragQuery = customQuery || (lang === 'en' 
       ? `Best courses for a ${user.userFunction} specialized in ${user.serviceLine}. Interests: ${interestsStr}. current skills: ${skillsStr}.`
-      : `Melhores cursos para um ${user.userFunction} da área ${user.serviceLine}. Interesses: ${interestsStr}. Skills atuais: ${skillsStr}.`;
+      : `Melhores cursos para um ${user.userFunction} da área ${user.serviceLine}. Interesses: ${interestsStr}. Skills atuais: ${skillsStr}.`);
 
     // 4. Construir Prompt com Chain-of-Thought
     const systemPrompt = buildRecommendationPrompt(
@@ -86,7 +90,7 @@ export class RecommendationService {
 
     // 5. Executar RAG com Groq JSON Mode
     const finalResult = await this.ragService.query(ragQuery, {
-      topK: 12,
+      topK,
       sourceFilter: [ChunkSource.EXTERNAL_COURSE],
       systemPrompt,
       generateOptions: {

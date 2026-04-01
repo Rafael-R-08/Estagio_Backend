@@ -15,6 +15,7 @@ import { SlManagerModule } from './sl-manager/sl-manager.module';
 import { RagModule } from './rag/rag.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
 import { AnalysisModule } from './analysis/analysis.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -35,6 +36,7 @@ import { BullModule } from '@nestjs/bullmq';
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [configuration], validate }),
     EventEmitterModule.forRoot(),
+    ScheduleModule.forRoot(),
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({

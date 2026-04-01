@@ -3,7 +3,8 @@ import { ChunkSource } from '@prisma/client';
 
 export class CourseCreatedEvent {
   constructor(
-    public readonly courseId: string,
+    public readonly externalId: string,
+    public readonly platformId: string,
     public readonly title: string,
     public readonly description: string | null,
     public readonly provider: string,

@@ -1,11 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsArray, IsInt, IsBoolean, IsNumber, IsOptional, IsString, Max, Min, IsEnum } from 'class-validator';
+import { IsArray, IsInt, IsBoolean, IsNumber, IsOptional, IsString, Max, Min, IsEnum, Length, IsNotEmpty } from 'class-validator';
 import { CourseLevel } from '@prisma/client';
 
 export class SearchQueryDto {
   @ApiProperty({ description: 'Termo de pesquisa', example: 'Azure DevOps' })
   @IsString()
+  @IsNotEmpty()
+  @Length(2, 100)
   q: string;
 
   @ApiProperty({
@@ -47,12 +49,12 @@ export class SearchQueryDto {
   @Max(5)
   minRating?: number;
 
-  @ApiProperty({ description: 'Relevância mínima Softinsa (0 a 5)', required: false })
+  @ApiProperty({ description: 'Relevância mínima Softinsa (0 a 1)', required: false, example: 0.5 })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  @Max(5)
+  @Max(1)
   minRelevance?: number;
 
   @ApiProperty({ description: 'Classificação interna mínima (Softinsa)', required: false })

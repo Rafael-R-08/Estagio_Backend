@@ -42,6 +42,12 @@ async function bootstrap() {
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads' });
 
   app.use(helmet({ contentSecurityPolicy: false }));
+  
+  // Limites de payload para segurança
+  const { json, urlencoded } = require('body-parser');
+  app.use(json({ limit: '5mb' }));
+  app.use(urlencoded({ limit: '5mb', extended: true }));
+
   app.enableCors();
   app.setGlobalPrefix('api');
 

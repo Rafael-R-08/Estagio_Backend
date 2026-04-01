@@ -35,7 +35,7 @@ export class RecommendationController {
     summary: 'Recomendações personalizadas baseadas no perfil e histórico do utilizador autenticado',
   })
   async recommendForMe(@CurrentUser() userId: string, @Body() dto: RecommendQueryDto) {
-    return this.recommendationService.recommendForUser(userId);
+    return this.recommendationService.recommendForUser(userId, dto.query);
   }
 
   @Get('me')

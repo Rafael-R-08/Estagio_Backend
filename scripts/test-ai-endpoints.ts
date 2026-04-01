@@ -1,60 +1,55 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../src/app.module';
-import { AiService } from '../src/ai/services/ai.service';
-import { EmbeddingService } from '../src/ai/services/embedding.service';
-import { RecommendationService } from '../src/ai/services/recommendation.service';
-import { CertificatesService } from '../src/certificates/certificates.service';
-import { PrismaService } from '../src/prisma/prisma.service';
+import axios from 'axios';
+import 'dotenv/config';
 
-async function bootstrap() {
-  const app = await NestFactory.createApplicationContext(AppModule);
-  
-  const aiService = app.get(AiService);
-  const embeddingService = app.get(EmbeddingService);
-  const recommendationService = app.get(RecommendationService);
-  const prisma = prismaService = app.get(PrismaService);
+async function testEndpoints() {
+  const PORT = process.env.PORT || 3000;
+  const BASE_URL = `http://localhost:${PORT}/api`;
 
-  console.log('\n--- INICIANDO TESTES DE INTEGRAÇÃO AI (GROQ + XENOVA) ---\n');
+  const endpoints = [
+    { method: 'GET', url: '/ai/health' },
+    { method: 'GET', url: '/ai/recommendations/welcome' },
+    { method: 'POST', url: '/analysis/course' },
+    { method: 'POST', url: '/analysis/batch' },
+    { method: 'GET', url: '/ai/indexing-stats' },
+  ];
 
-  try {
-    // 1. Teste de Chat (Groq)
-    console.log('1. Testando Groq (Llama 3.3 70B)...');
-    const chatResponse = await aiService.generateText('Olá, quem és tu?');
-    console.log('   ✓ Resposta recebida:', chatResponse.substring(0, 50) + '...');
+  console.log('--- Testing AI Endpoints Status ---');
+  let failures = 0;
 
-    // 2. Teste de Embedding (Xenova Local)
-    console.log('2. Testando Xenova Local (MiniLM-384)...');
-    const embedding = await embeddingService.embed('Softinsa Cloud Training');
-    console.log(`   ✓ Embedding gerado: [${embedding.length} dimensões]`);
-    if (embedding.length !== 384) throw new Error('Dimensão incorreta!');
-
-    // 3. Teste de Pesquisa Semântica
-    console.log('3. Testando Pesquisa Semântica no pgvector...');
-    const searchResults = await embeddingService.searchSimilar('Cloud', 1);
-    console.log(`   ✓ Resultados encontrados: ${searchResults.length}`);
-
-    // 4. Teste de Recomendação (RAG Completo)
+  for (const endpoint of endpoints) {
     try {
-      const user = await prisma.user.findFirst();
-      if (user) {
-        console.log(`4. Testando Recomendações (RAG) para user: ${user.name}...`);
-        const recs = await recommendationService.recommendForUser(user.id);
-        console.log('   ✓ Recomendações geradas com sucesso.');
+      if (endpoint.method === 'GET') {
+        const response = await axios.get(`${BASE_URL}${endpoint.url}`);
+        console.log(`✅ ${endpoint.method} ${endpoint.url} - Status: ${response.status}`);
       } else {
-        console.log('4. Ignorando Recomendações (Nenhum utilizador na DB).');
+        const response = await axios.post(`${BASE_URL}${endpoint.url}`, {});
+        console.log(`✅ ${endpoint.method} ${endpoint.url} - Status: ${response.status}`);
       }
-    } catch (e) {
-      console.warn('   ⚠ Falha nas Recomendações (pode ser falta de dados de seed):', e.message);
+    } catch (err: any) {
+      const status = err.response?.status;
+      if (status === 404 || status >= 500) {
+        console.log(`❌ ${endpoint.method} ${endpoint.url} - Status: ${status || 'ERR'}`);
+        failures++;
+      } else {
+        console.log(`ℹ️ ${endpoint.method} ${endpoint.url} - Status: ${status || 'ERR'} (Expected if protected)`);
+      }
     }
+  }
 
-    console.log('\n--- TODOS OS TESTES CORE COMPLETADOS COM SUCESSO ---\n');
-  } catch (error) {
-    console.error('\n❌ FALHA NOS TESTES:', error.message);
+  // Check for Job Status (dangerous public endpoints)
+  console.log('--- Checking Sensitive Endpoints Accessibility ---');
+  try {
+    const jobStatus = await axios.get(`${BASE_URL}/certificates/job/test-id`);
+    console.log(`⚠️  GET /certificates/job/test-id - Open: ${jobStatus.status}`);
+    failures++;
+  } catch (err: any) {
+    console.log(`🔒 GET /certificates/job/test-id - Secured: ${err.response?.status}`);
+  }
+
+  if (failures > 0) {
+    console.error(`\n❌ ENDPOINT TESTING FAILED with ${failures} errors!`);
     process.exit(1);
-  } finally {
-    await app.close();
   }
 }
 
-let prismaService; // Helper for try-catch scope
-bootstrap();
+testEndpoints();

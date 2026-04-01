@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import 'dotenv/config';
 import * as bcrypt from 'bcrypt';
-import { PrismaClient, Role, TrainingStatus, ServiceLine } from '@prisma/client';
+import { PrismaClient, Role, TrainingStatus, ServiceLine, CourseLevel } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 
@@ -17,79 +17,29 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  console.log('🚀 Iniciando seed...');
+  console.log('🚀 Iniciando seed profissional (Correção ExternalId & Normalização)...');
 
   const platforms = await Promise.all([
     prisma.learningPlatform.upsert({
       where: { name: 'Udemy' },
       update: {},
-      create: {
-        name: 'Udemy',
-        type: 'Tech',
-        enabled: true,
-        searchEnabled: true,
-        config: {},
-      },
+      create: { name: 'Udemy', type: 'Tech', enabled: true, searchEnabled: true, config: {} },
     }),
     prisma.learningPlatform.upsert({
       where: { name: 'Microsoft Learn' },
       update: {},
-      create: {
-        name: 'Microsoft Learn',
-        type: 'Cloud',
-        enabled: true,
-        searchEnabled: true,
-        config: {},
-      },
+      create: { name: 'Microsoft Learn', type: 'Cloud', enabled: true, searchEnabled: true, config: {} },
     }),
     prisma.learningPlatform.upsert({
-      where: { name: 'IBM SkillsBuild' },
+      where: { name: 'Internal' },
       update: {},
-      create: {
-        name: 'IBM SkillsBuild',
-        type: 'General',
-        enabled: true,
-        searchEnabled: true,
-        config: {},
-      },
-    }),
-    prisma.learningPlatform.upsert({
-      where: { name: 'Academia Portugal Digital' },
-      update: {},
-      create: {
-        name: 'Academia Portugal Digital',
-        type: 'Public',
-        enabled: true,
-        searchEnabled: true,
-        config: {},
-      },
-    }),
-    prisma.learningPlatform.upsert({
-      where: { name: 'Trailhead' },
-      update: {},
-      create: {
-        name: 'Trailhead',
-        type: 'Salesforce',
-        enabled: true,
-        searchEnabled: true,
-        config: {},
-      },
-    }),
-    prisma.learningPlatform.upsert({
-      where: { name: 'Softinsa Everyday Learning' },
-      update: {},
-      create: {
-        name: 'Softinsa Everyday Learning',
-        type: 'Internal',
-        enabled: true,
-        searchEnabled: true,
-        config: {},
-      },
+      create: { name: 'Internal', type: 'Internal', enabled: true, searchEnabled: true, config: {} },
     }),
   ]);
 
   const udemy = platforms[0];
   const msLearn = platforms[1];
+  const internal = platforms[2];
 
   const userHash = await bcrypt.hash('password123', 10);
   const user = await prisma.user.upsert({
@@ -113,92 +63,72 @@ async function main() {
   await prisma.userSkill.createMany({
     data: [
       { userId: user.id, skillName: 'Node.js', level: 'experiente' },
-      { userId: user.id, skillName: 'React', level: 'intermedio' },
       { userId: user.id, skillName: 'TypeScript', level: 'experiente' },
     ]
   });
 
-  // 0) Utilizador para testar Onboarding (vazio)
-  await prisma.user.upsert({
-    where: { email: 'newuser@example.com' },
-    update: { onboardingDone: false },
+  // Seed Courses with External IDs (Normalização)
+  console.log('📦 Seeding Courses for Indexing...');
+  const course1 = await prisma.course.upsert({
+    where: { id: 'seed-course-1' }, 
+    update: {},
     create: {
-      email: 'newuser@example.com',
-      passwordHash: userHash,
-      name: 'New User',
-      role: Role.USER,
-      onboardingDone: false,
+      id: 'seed-course-1',
+      externalId: 'udemy-node-best-practices',
+      platformId: udemy.id,
+      title: 'Node.js Best Practices 2026',
+      description: 'Advanced patterns for enterprise applications.',
+      url: 'https://udemy.com/node-best-practices',
+      level: CourseLevel.advanced,
+      tags: ['Nodejs', 'Architecture', 'Backend'],
+      rating: 4.8,
     }
   });
 
-  await prisma.user.upsert({
-    where: { email: 'onboarding-test@example.com' },
-    update: { onboardingDone: false },
+  // Criar TrainingRecord correspondente para compatibilidade com testes de PDF/Background
+  await prisma.trainingRecord.upsert({
+    where: { id: 'seed-training-1' },
+    update: {},
     create: {
-      email: 'onboarding-test@example.com',
-      passwordHash: userHash,
-      name: 'Onboard Tester',
-      role: Role.USER,
-      onboardingDone: false,
-    }
-  });
-
-  // 1) Concluída
-  const t1 = await prisma.trainingRecord.create({
-    data: {
+      id: 'seed-training-1',
       userId: user.id,
       platformId: udemy.id,
-      title: 'Node.js Best Practices',
-      url: 'https://www.udemy.com/course/nodejs-best-practices/',
+      title: 'Node.js Best Practices 2026',
+      url: 'https://udemy.com/node-best-practices',
       status: TrainingStatus.completed,
-      rating: 5,
-      relevance: 5,
-      notes: 'Conceitos fundamentais de arquitetura limpa.',
-      startedAt: new Date('2025-11-01'),
-      completedAt: new Date('2025-12-15'),
-    },
-  });
-
-  await prisma.trainingDocument.create({
-    data: {
-      trainingId: t1.id,
-      fileUrl: 'https://example.com/notes.pdf',
-      fileName: 'Apontamentos_NodeJS.pdf',
     }
   });
 
-  // 2) Em Progresso
-  const t2 = await prisma.trainingRecord.create({
-    data: {
-      userId: user.id,
+  await prisma.course.upsert({
+    where: { id: 'seed-course-2' },
+    update: {},
+    create: {
+      id: 'seed-course-2',
+      externalId: 'ms-azure-fundamentals',
       platformId: msLearn.id,
-      title: 'Introduction to Azure Cloud Services',
-      url: 'https://learn.microsoft.com/azure/intro',
-      status: TrainingStatus.ongoing,
-      progressLevel: 'Em evolução',
-      startedAt: new Date('2026-01-10'),
-      notes: 'Focar na parte de IAM.',
-    },
-  });
-  
-  await prisma.trainingDocument.create({
-    data: {
-      trainingId: t2.id,
-      fileUrl: 'https://example.com/azure-iam.docx',
-      fileName: 'Azure_IAM_Notes.docx',
+      title: 'Azure Fundamentals AZ-900',
+      description: 'Cloud concepts, Azure services, and workloads.',
+      url: 'https://learn.microsoft.com/az-900',
+      level: CourseLevel.beginner,
+      tags: ['Azure', 'Cloud', 'Infrastructure'],
+      rating: 4.9,
     }
   });
 
-  // 3) Guardada
-  await prisma.trainingRecord.create({
-    data: {
-      userId: user.id,
-      platformId: udemy.id,
-      title: 'Advanced PostgreSQL',
-      url: 'https://www.udemy.com/course/postgres-advanced/',
-      status: TrainingStatus.priority,
-      priorityOrder: 1,
-    },
+  await prisma.course.upsert({
+    where: { id: 'seed-course-3' },
+    update: {},
+    create: {
+      id: 'seed-course-3',
+      externalId: 'internal-softinsa-onboarding',
+      platformId: internal.id,
+      title: 'Softinsa Hybrid Cloud Onboarding',
+      description: 'Internal guide for new joiners in the Hybrid Cloud SL.',
+      url: 'https://learning.softinsa.com/onboarding',
+      level: CourseLevel.intermediate,
+      tags: ['Softinsa', 'Internal', 'Cloud'],
+      rating: 5.0,
+    }
   });
 
   console.log('✅ Seed concluído com sucesso!');

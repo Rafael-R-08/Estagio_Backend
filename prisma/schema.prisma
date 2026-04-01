@@ -118,6 +118,7 @@ model Course {
   isFree        Boolean?
   platform      LearningPlatform       @relation(fields: [platformId], references: [id], onDelete: Cascade)
 
+  @@unique([externalId, platformId])
   @@index([platformId])
 }
 
@@ -158,6 +159,7 @@ model TextChunk {
   lastUpdatedAt DateTime?
   createdAt     DateTime              @default(now())
 
+  @@unique([source, sourceId])
   @@index([source])
   @@index([sourceId])
   @@map("text_chunks")

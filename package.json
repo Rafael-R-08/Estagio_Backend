@@ -14,10 +14,18 @@
     "start:prod": "node dist/main",
     "lint": "eslint . --ext .ts",
     "test": "jest",
+    "test:ai:smoke": "ts-node scripts/validate-ai-features.ts",
+    "test:ai:flows": "ts-node scripts/validate-ai-flows.ts",
+    "test:ai:endpoints": "ts-node scripts/test-ai-endpoints.ts",
+    "db:cleanup-duplicates": "ts-node scripts/cleanup-duplicates.ts",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "seed": "ts-node prisma/seed.ts"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
     "@microsoft/microsoft-graph-client": "^3.0.7",

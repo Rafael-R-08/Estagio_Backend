@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Groq from 'groq-sdk';
 import { CacheService } from '../../cache/cache.service';
@@ -25,7 +25,7 @@ export interface GenerateOptions {
 }
 
 @Injectable()
-export class AiService {
+export class AiService implements OnModuleInit {
   private readonly logger = new Logger(AiService.name);
   private readonly groq: Groq;
   private readonly DEFAULT_MODEL = 'llama-3.3-70b-versatile';
@@ -36,6 +36,16 @@ export class AiService {
   ) {
     const apiKey = this.configService.get('GROQ_API_KEY') || process.env.GROQ_API_KEY;
     this.groq = new Groq({ apiKey });
+  }
+
+  onModuleInit() {
+    const apiKey = this.configService.get('GROQ_API_KEY') || process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      this.logger.error('CRITICAL: GROQ_API_KEY não está definida nas variáveis de ambiente!');
+      this.logger.warn('As funcionalidades de AI (Chat, RAG, Recomendações) podem falhar.');
+    } else {
+      this.logger.log('Groq SDK inicializado com sucesso.');
+    }
   }
 
   /**

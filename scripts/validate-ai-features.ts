@@ -1,81 +1,65 @@
-import axios from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
+import 'dotenv/config';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+import Groq from 'groq-sdk';
+import { pipeline } from '@xenova/transformers';
 
-const API_URL = 'http://localhost:3000/api';
-const LOG_FILE = path.join(process.cwd(), 'logs', `application-${new Date().toISOString().split('T')[0]}.log`);
+async function validate() {
+  console.log('🔍 Validating AI Infrastructure...');
+  
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const adapter = new PrismaPg(pool);
+  const prisma = new PrismaClient({ adapter });
+  
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  const modelName = 'Xenova/all-MiniLM-L6-v2';
 
-async function testStreaming() {
-    console.log('\n--- TESTANDO STREAMING SSE ---\n');
-    try {
-        const response = await axios.post(`${API_URL}/ai/chat/stream`, 
-            { prompt: 'Olá, em 3 palavras.' },
-            { responseType: 'stream' }
-        );
+  try {
+    // 1. Prisma Check
+    console.log('--- [1/4] Checking DB Connection ---');
+    await prisma.$connect();
+    const count = await prisma.textChunk.count();
+    console.log(`✅ Prisma connected. Total chunks: ${count}`);
 
-        return new Promise((resolve, reject) => {
-            let chunkCount = 0;
-            response.data.on('data', (chunk: Buffer) => {
-                const text = chunk.toString();
-                if (text.includes('data:')) {
-                    chunkCount++;
-                    process.stdout.write('.');
-                }
-            });
+    // 2. Groq Check
+    console.log('--- [2/4] Checking Groq API ---');
+    const chat = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: 'Health check' }],
+      max_tokens: 5,
+    });
+    console.log(`✅ Groq Response: "${chat.choices[0].message.content}"`);
 
-            response.data.on('end', () => {
-                console.log(`\n✓ Stream concluído. Recebidos ${chunkCount} chunks.`);
-                resolve(true);
-            });
+    // 3. Embedding Check
+    console.log('--- [3/4] Checking Local Embeddings (Transformers.js) ---');
+    const extractor = await pipeline('feature-extraction', modelName);
+    const output = await extractor('Softinsa Learning Hub', { pooling: 'mean', normalize: true });
+    console.log(`✅ Embedding generated: ${output.data.length} dimensions`);
 
-            response.data.on('error', (err: any) => reject(err));
-        });
-    } catch (error: any) {
-        console.error('❌ Falha no teste de streaming:', error.message);
-        return false;
-    }
-}
-
-async function testLogging() {
-    console.log('\n--- TESTANDO LOGS ESTRUTURADOS ---\n');
-    try {
-        // Faz uma chamada normal para gerar log de tokens
-        await axios.post(`${API_URL}/ai/generate`, { prompt: 'Teste de log' });
-        
-        // Aguarda um pouco para o winston gravar
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        if (fs.existsSync(LOG_FILE)) {
-            const content = fs.readFileSync(LOG_FILE, 'utf8');
-            const lines = content.trim().split('\n');
-            const lastLog = JSON.parse(lines[lines.length - 1]);
-
-            if (lastLog.message === 'Groq API Usage' && lastLog.prompt_tokens) {
-                console.log('✓ Log JSON detectado com sucesso.');
-                console.log(`  - Modelo: ${lastLog.model}`);
-                console.log(`  - Tokens: ${lastLog.total_tokens}`);
-                console.log(`  - Latência: ${lastLog.latency_ms}ms`);
-                return true;
-            }
-        }
-        console.error('❌ Log esperado não encontrado ou formato incorreto.');
-        return false;
-    } catch (error: any) {
-        console.error('❌ Falha no teste de logging:', error.message);
-        return false;
-    }
-}
-
-async function runTests() {
-    const streamOk = await testStreaming();
-    const logOk = await testLogging();
-
-    if (streamOk && logOk) {
-        console.log('\n✅ TODOS OS TESTES PASSARAM COM SUCESSO!\n');
+    // 4. Vector Query Check
+    console.log('--- [4/4] Checking Vector Search (Cosine Similarity) ---');
+    if (count > 0) {
+      const embeddingStr = `[${Array.from(output.data).join(',')}]`;
+      const result = await prisma.$queryRawUnsafe<any[]>(`
+        SELECT id, content, (embedding <=> $1::vector) as distance
+        FROM text_chunks
+        ORDER BY distance ASC
+        LIMIT 1
+      `, embeddingStr);
+      console.log(`✅ Vector search OK. Nearest chunk ID: ${result[0]?.id || 'N/A'}`);
     } else {
-        console.log('\n❌ ALGUNS TESTES FALHARAM.\n');
-        process.exit(1);
+      console.log('⚠️ Skipping vector search (Empty table)');
     }
+
+    console.log('\n🌟 ALL AI INFRASTRUCTURE CHECKS PASSED!');
+  } catch (err: any) {
+    console.error('\n❌ VALIDATION FAILED!');
+    console.error(err.message);
+    process.exit(1);
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
-runTests();
+validate();

@@ -64,9 +64,15 @@ export class AiController {
   }
 
   @Post('recommendations/welcome')
+  @Public()
+  @ApiOperation({ summary: 'Obtém a mensagem de boas-vindas do assistente (POST)' })
+  async postWelcome(@CurrentUser() userId?: string) {
+    return this.getWelcome(userId);
+  }
+
   @Get('recommendations/welcome')
   @Public()
-  @ApiOperation({ summary: 'Obtém a mensagem de boas-vindas do assistente' })
+  @ApiOperation({ summary: 'Obtém a mensagem de boas-vindas do assistente (GET)' })
   async getWelcome(@CurrentUser() userId?: string) {
     const welcome = await this.ragService.getWelcomeMessage(userId);
     return { welcome };

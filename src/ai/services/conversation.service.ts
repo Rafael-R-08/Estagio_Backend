@@ -37,7 +37,7 @@ export class ConversationService {
     content: string, 
     metadata?: any
   ): Promise<Message> {
-    return this.prisma.message.create({
+    const message = await this.prisma.message.create({
       data: {
         conversationId,
         role,
@@ -45,6 +45,14 @@ export class ConversationService {
         metadata: metadata || {},
       },
     });
+
+    // Forçar atualização do updatedAt na conversa pai
+    await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: { updatedAt: new Date() }
+    });
+
+    return message;
   }
 
   /**

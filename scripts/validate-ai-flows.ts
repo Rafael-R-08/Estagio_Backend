@@ -1,71 +1,60 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../src/app.module';
-import { RagService } from '../src/ai/services/rag.service';
-import { RecommendationService } from '../src/ai/services/recommendation.service';
-import { PrismaService } from '../src/prisma/prisma.service';
+import 'dotenv/config';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+import axios from 'axios';
 
-async function bootstrap() {
-  const app = await NestFactory.createApplicationContext(AppModule);
-  const ragService = app.get(RagService);
-  const recommendationService = app.get(RecommendationService);
-  const prisma = app.get(PrismaService);
-
-  console.log('🚀 Final Deep Validation of IA (Llama 3.3)...');
-
-  const users = await prisma.user.findMany({ 
-    take: 5, 
-    include: { settings: true } 
-  });
+async function validateFlows() {
+  const PORT = process.env.PORT || 3000;
+  const BASE_URL = `http://localhost:${PORT}/api`;
   
-  if (users.length === 0) {
-    console.error('❌ No users found.');
-    await app.close();
-    return;
-  }
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const adapter = new PrismaPg(pool);
+  const prisma = new PrismaClient({ adapter });
 
-  const userEN = users.find(u => u.settings?.uiLanguage === 'en') || users[0];
-
-  console.log(`\n### SCENARIO: Language Mix & RAG Quality ###`);
-  const mixedQuery = "Quais são as principais competências de IA?";
-  const mixedResult: any = await ragService.query(mixedQuery, { 
-    generateOptions: { userId: userEN.id } 
-  });
-  
-  console.log(`Query (PT): ${mixedQuery}`);
-  console.log(`Lang preference: ${userEN.settings?.uiLanguage}`);
-  console.log(`Response Snippet: ${mixedResult.answer.substring(0, 100)}...`);
-  console.log(`RAG Quality (avgSimilarity): ${mixedResult.qualityScore.toFixed(4)}`);
-  console.log(`Sources: ${mixedResult.sources.length}`);
-
-  console.log(`\n### SCENARIO: Empty Context (General Knowledge) ###`);
-  const irrelevantQuery = "Como cozinhar arroz na Softinsa?";
-  const emptyRes: any = await ragService.query(irrelevantQuery, { topK: 1 });
-  console.log(`Query: ${irrelevantQuery}`);
-  console.log(`Sources (>0.65): ${emptyRes.sources.length}`);
-  console.log(`AI General Response: ${emptyRes.answer.substring(0, 100)}...`);
-
-  console.log(`\n### SCENARIO: New / Clean User Recommendations ###`);
-  const cleanUser = await prisma.user.create({
-    data: {
-      email: `clean_${Date.now()}@test.com`,
-      passwordHash: 'fake',
-      name: 'Clean User',
-      settings: { create: { uiLanguage: 'pt' } }
-    }
-  });
+  console.log('--- Checking Global AI Flow (RAG + History) ---');
 
   try {
-    const recs: any = await recommendationService.recommendForUser(cleanUser.id);
-    console.log(`✅ Recommendations generated: ${Object.keys(recs).length > 0 ? 'YES' : 'NO'}`);
-    if (recs.improvement) console.log('✅ improvement key found');
-  } catch (err) {
-    console.error(`❌ Fail: ${err.message}`);
-  } finally {
-    await prisma.user.delete({ where: { id: cleanUser.id } });
-  }
+    // 0. Login to get JWT
+    console.log('[0/4] Logging in as test user...');
+    const login = await axios.post(`${BASE_URL}/auth/login`, {
+      email: 'user@example.com',
+      password: 'password123',
+    });
+    const token = login.data.access_token;
+    const authHeaders = { Authorization: `Bearer ${token}` };
 
-  console.log('\n🚀 Validation Report Finished Successfully.');
-  await app.close();
+    // 1. Check Authentication logic (Anonymous vs User)
+    console.log('[1/4] Checking Optional User Flow (Anonymous)...');
+    const welcomeAnon = await axios.get(`${BASE_URL}/ai/recommendations/welcome`);
+    console.log(`✅ Welcome Message (Anon): "${welcomeAnon.data.welcome}"`);
+
+    console.log('[2/4] Checking Optional User Flow (Authenticated)...');
+    const welcomeAuth = await axios.get(`${BASE_URL}/ai/recommendations/welcome`, { headers: authHeaders });
+    console.log(`✅ Welcome Message (Auth): "${welcomeAuth.data.welcome}"`);
+
+    // 2. Chat Query (Simple)
+    console.log('[3/4] Checking Simple Chat...');
+    const chat = await axios.post(`${BASE_URL}/ai/chat`, {
+      prompt: 'Olá, que cursos de cloud recomendas?',
+    }, { headers: authHeaders });
+    console.log(`✅ Chat Response: "${chat.data.answer.substring(0, 50)}..."`);
+    console.log(`✅ Sources: ${chat.data.sources.length}`);
+
+    // 3. User Recommendations (Needs Auth)
+    console.log('[4/4] Checking Personalized Recommendations (Requires User)...');
+    const recs = await axios.post(`${BASE_URL}/ai/recommendations`, {}, { headers: authHeaders });
+    console.log(`✅ Recommendations Response: ${recs.data.improvement ? 'OK' : 'FAIL'}`);
+
+    console.log('\n🌟 ALL AI FLOW CHECKS PASSED!');
+  } catch (err: any) {
+    console.error('\n❌ FLOW VALIDATION FAILED!');
+    console.error(err.response?.data || err.message);
+    process.exit(1);
+  } finally {
+    await prisma.$disconnect();
+    await pool.end();
+  }
 }
 
-bootstrap();
+validateFlows();

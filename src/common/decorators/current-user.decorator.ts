@@ -4,6 +4,7 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 export const CurrentUser = createParamDecorator(
   (data: unknown, ctx: ExecutionContext) => {
     const request = ctx.switchToHttp().getRequest();
-    return request.user?.userId; // JWT strategy popula com { userId, email, role }
+    // Return userId if present in request.user (resolved by JwtAuthGuard)
+    return request.user?.userId || null;
   },
 );

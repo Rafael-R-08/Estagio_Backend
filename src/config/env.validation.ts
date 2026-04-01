@@ -1,5 +1,5 @@
 import { plainToInstance } from 'class-transformer';
-import { IsEnum, IsString, validateSync } from 'class-validator';
+import { IsEnum, IsString, validateSync, IsUrl, MinLength } from 'class-validator';
 
 enum Environment {
   Development = 'development',
@@ -15,13 +15,14 @@ class EnvironmentVariables {
   @IsString()
   GROQ_API_KEY: string;
 
-  @IsString()
+  @IsUrl({ protocols: ['postgresql', 'postgres'], require_tld: false })
   DATABASE_URL: string;
 
   @IsString()
+  @MinLength(32, { message: 'JWT_SECRET deve ter pelo menos 32 caracteres para segurança.' })
   JWT_SECRET: string;
 
-  @IsString()
+  @IsUrl()
   SUPABASE_URL: string;
 
   @IsString()

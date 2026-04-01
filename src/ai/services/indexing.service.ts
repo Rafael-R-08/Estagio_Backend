@@ -29,33 +29,33 @@ export class IndexingService {
    * Indexa um único curso. Verifica duplicados pelo sourceId.
    */
   async indexCourse(event: CourseCreatedEvent) {
-    this.logger.log(`A processar indexação de curso: ${event.courseId} (${event.source})`);
+    this.logger.log(`A processar indexação de curso: ${event.externalId} (${event.source})`);
 
     try {
-      // 1. Verificar se já existe chunk para este sourceId
+      // 1. Idempotência: Verificar se já existe chunk para este externalId + source
       const existing = await this.prisma.textChunk.findFirst({
-        where: { sourceId: event.courseId, source: event.source }
+        where: { sourceId: event.externalId, source: event.source }
       });
 
       if (existing) {
-        this.logger.debug(`Curso ${event.courseId} já indexado. Ignorando.`);
+        this.logger.debug(`Curso ${event.externalId} já indexado. Ignorando.`);
         return existing;
       }
 
       const content = this.buildCourseChunkContent(event);
       const metadata = this.buildMetadata(event);
 
-      // 2. Criar novo chunk
+      // 2. Criar novo chunk (Embedding Service encapsula a lógica vetorial)
       const result = await this.embeddingService.indexChunk(
         content,
         event.source,
-        event.courseId,
+        event.externalId,
         metadata,
       );
       return result;
     } catch (error: any) {
       this.logger.error(
-        `Erro ao indexar curso ${event.courseId}: ${error.message}`,
+        `Erro ao indexar curso ${event.externalId}: ${error.message}`,
       );
       return null;
     }
@@ -108,7 +108,8 @@ export class IndexingService {
 
   private buildMetadata(event: CourseCreatedEvent): Record<string, any> {
     return {
-      courseId: event.courseId,
+      externalId: event.externalId,
+      platformId: event.platformId,
       platform: event.provider,
       category: event.category,
       level: event.difficulty,
@@ -152,7 +153,8 @@ export class IndexingService {
 
       // 4. Mapear para eventos
       const events: CourseCreatedEvent[] = missing.map(c => ({
-        courseId: c.externalId,
+        externalId: c.externalId,
+        platformId: c.platformId,
         title: c.title,
         description: c.description,
         provider: c.platform.name,

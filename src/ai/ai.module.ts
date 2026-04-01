@@ -21,8 +21,8 @@ import { forwardRef } from '@nestjs/common';
   imports: [
     PrismaModule,
     forwardRef(() => SearchModule),
-    EventEmitterModule.forRoot(),
-    ScheduleModule.forRoot(),
+    EventEmitterModule,
+    ScheduleModule,
   ],
   controllers: [
     AiController

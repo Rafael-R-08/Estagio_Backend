@@ -2,6 +2,7 @@ import { Controller, Post, Get, Body, HttpCode, HttpStatus } from '@nestjs/commo
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { RagService } from '../ai/services/rag.service';
+import { RecommendationService } from '../ai/services/recommendation.service';
 import { RagQueryDto } from './dto/rag-query.dto';
 import { RagRecommendDto } from './dto/rag-recommend.dto';
 import { Public } from '../common/decorators/public.decorator';
@@ -11,7 +12,10 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 @ApiBearerAuth()
 @Controller('rag')
 export class RagController {
-  constructor(private ragService: RagService) {}
+  constructor(
+    private ragService: RagService,
+    private recommendationService: RecommendationService,
+  ) {}
 
   /**
    * POST /rag/query
@@ -55,10 +59,11 @@ export class RagController {
     @Body() dto: RagRecommendDto,
     @CurrentUser() userId?: string
   ) {
-    return this.ragService.query(dto.query || 'Recomenda formações', { 
-      topK: dto.topK,
-      generateOptions: { userId }
-    });
+    return this.recommendationService.recommendForUser(
+      userId,
+      dto.query,
+      dto.topK,
+    );
   }
 
   /**

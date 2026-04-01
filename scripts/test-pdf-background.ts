@@ -1,19 +1,66 @@
+import 'dotenv/config';
 import axios from 'axios';
 import FormData = require('form-data');
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
 
 const API_URL = 'http://localhost:3000/api';
-const prisma = new PrismaClient();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 async function runTest() {
   console.log('--- TESTANDO PROCESSAMENTO DE PDF EM BACKGROUND (E2E) ---\n');
 
   try {
-    // 1. Obter TrainingId do Seed
-    const training = await prisma.trainingRecord.findFirst({
-        where: { title: 'Node.js Best Practices' }
+    // 0. Login para obter token JWT
+    const login = await axios.post(`${API_URL}/auth/login`, {
+      email: 'user@example.com',
+      password: 'password123',
     });
+    const token = login.data.access_token;
+    const authHeaders = { Authorization: `Bearer ${token}` };
+
+    // 1. Obter TrainingId do utilizador autenticado
+    let training = await prisma.trainingRecord.findFirst({
+      where: { userId: login.data.user.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
     if (!training) throw new Error('Training record não encontrado. O seed correu?');
+
+    if (training) {
+      const existingCert = await prisma.certificate.findUnique({
+        where: { trainingId: training.id },
+      });
+
+      if (existingCert) {
+        training = await prisma.trainingRecord.findFirst({
+          where: {
+            userId: login.data.user.id,
+            certificate: null,
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+      }
+    }
+
+    if (!training) {
+      const platform = await prisma.learningPlatform.findFirst({
+        where: { enabled: true },
+      });
+
+      training = await prisma.trainingRecord.create({
+        data: {
+          userId: login.data.user.id,
+          platformId: platform?.id,
+          title: `Background PDF Test ${Date.now()}`,
+          url: 'https://example.com/background-pdf-test',
+          status: 'ongoing',
+        },
+      });
+    }
     
     console.log(`✓ Encontrado Training ID: ${training.id}`);
 
@@ -27,7 +74,10 @@ async function runTest() {
 
     console.log('1. A enviar upload de certificado...');
     const uploadRes = await axios.post(`${API_URL}/certificates`, form, {
-      headers: form.getHeaders(),
+      headers: {
+        ...form.getHeaders(),
+        ...authHeaders,
+      },
     });
 
     const { id: certId, jobId } = uploadRes.data;
@@ -38,7 +88,9 @@ async function runTest() {
     let completed = false;
     for (let i = 0; i < 15; i++) {
         await new Promise(r => setTimeout(r, 2000));
-        const statusRes = await axios.get(`${API_URL}/certificates/job/${jobId}`);
+        const statusRes = await axios.get(`${API_URL}/certificates/job/${jobId}`, {
+          headers: authHeaders,
+        });
         const { state, failedReason, result } = statusRes.data;
         
         console.log(`   - Tentativa ${i+1}: Estado = ${state}`);
@@ -60,6 +112,7 @@ async function runTest() {
     console.error('❌ Erro no teste:', error.response?.data || error.message);
   } finally {
     await prisma.$disconnect();
+    await pool.end();
   }
 }
 

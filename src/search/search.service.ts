@@ -4,6 +4,8 @@ import { SearchOrchestratorService } from './search-orchestrator.service';
 import { CourseDbService } from './course-db.service';
 import { PlatformRegistry } from './platform.registry';
 import { SemanticRankingService } from './semantic-ranking.service';
+import { EmbeddingService } from '../ai/services/embedding.service';
+import { ChunkSource } from '@prisma/client';
 
 @Injectable()
 export class SearchService {
@@ -14,6 +16,7 @@ export class SearchService {
     private readonly dbService: CourseDbService,
     private readonly registry: PlatformRegistry,
     private readonly ranking: SemanticRankingService,
+    private readonly embedding: EmbeddingService,
   ) {}
 
   /**
@@ -49,7 +52,22 @@ export class SearchService {
     const course = await this.getCourseByExternalId(externalId);
     if (!course) return [];
     
-    return this.ranking.rankResults(course.title, []); // Simplificado: busca por título
+    this.logger.log(`Procurando cursos relacionados para: "${course.title}" (${externalId})`);
+
+    // Busca semântica baseada no título e descrição do curso atual
+    const query = `${course.title}. ${course.description || ''}`;
+    const results = await this.embedding.searchSimilar(query, limit + 1, [ChunkSource.EXTERNAL_COURSE]);
+
+    // Filtrar o próprio curso do resultado
+    return results
+      .filter(r => r.sourceId !== externalId)
+      .slice(0, limit)
+      .map(r => ({
+        externalId: r.sourceId,
+        title: r.content.split('. ')[0].replace('CURSO: ', ''), // Extração simples para compatibilidade
+        similarity: r.similarity,
+        metadata: r.metadata
+      }));
   }
 
   /**

@@ -6,10 +6,10 @@
 
 */
 -- DropIndex
-DROP INDEX "courses_embedding_ivfflat_idx";
+DROP INDEX IF EXISTS "courses_embedding_ivfflat_idx";
 
 -- DropIndex
-DROP INDEX "text_chunks_embedding_ivfflat_idx";
+DROP INDEX IF EXISTS "text_chunks_embedding_ivfflat_idx";
 
 -- AlterTable
 ALTER TABLE "TrainingResource" DROP COLUMN "fileName",

@@ -6,7 +6,7 @@ import { buildRagPrompt } from '../templates/rag.template';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConversationService } from './conversation.service';
 import { CourseDbService } from '../../search/course-db.service';
-import { Observable, map } from 'rxjs';
+import { Observable, map, tap, finalize } from 'rxjs';
 
 export interface RagQueryOptions {
   topK?: number;
@@ -120,7 +120,7 @@ export class RagService {
     const chunks = await this.hybridSearch(question, options);
     const { context } = await this.buildContext(chunks, userId, options.maxContextLength || 4000, lang);
     const userPrompt = buildRagPrompt(context, question, lang);
-
+    let accumulatedAnswer = '';
     const stream = await this.aiService.generateStream(userPrompt, {
       ...options.generateOptions,
       language: lang as 'pt' | 'en',
@@ -128,9 +128,20 @@ export class RagService {
       history,
     }, options.model);
 
-    // Para streams com user, poderíamos acumular e guardar a resposta final, 
-    // mas para simplificar mantemos o fluxo de streaming.
-    return stream;
+    // Persistir resposta final quando o stream terminar (apenas se for user autenticado)
+    return stream.pipe(
+      tap(chunk => { accumulatedAnswer += chunk; }),
+      finalize(async () => {
+        if (userId && accumulatedAnswer) {
+          try {
+            await this.conversationService.addMessage(conversationId, 'assistant', accumulatedAnswer);
+            this.logger.debug(`Stream finalizado e guardado para conversa: ${conversationId}`);
+          } catch (error: any) {
+            this.logger.error(`Erro ao guardar resposta de stream: ${error.message}`);
+          }
+        }
+      })
+    );
   }
 
   /**

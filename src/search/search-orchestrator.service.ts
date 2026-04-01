@@ -6,6 +6,7 @@ import { CourseEnrichmentService } from './course-enrichment.service';
 import { SearchQueryDto } from './dto/search-query.dto';
 import { CourseResult } from './interfaces/platform-adapter.interface';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ChunkSource } from '@prisma/client';
 
 @Injectable()
 export class SearchOrchestratorService {
@@ -69,14 +70,48 @@ export class SearchOrchestratorService {
     // 5. Enriquecimento com estatísticas internas (ratings Softinsa)
     const enriched = await this.enrichmentService.enrichWithInternalStats(ranked);
 
-    // 6. Filtro final de minRelevance (após ranking semântico)
-    const finalResults = enriched.filter(r => (r.similarityScore || 0) >= minRelevance);
+    // 6. Cálculo de Relevância Softinsa (0.0 - 1.0)
+    const finalResults = enriched.map(course => {
+      const queryKeywords = q.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      
+      // A) Tags Match (50%)
+      const matchedTags = course.tags.filter(t => 
+        queryKeywords.some(kw => t.toLowerCase().includes(kw))
+      ).length;
+      const tagsScore = Math.min((matchedTags / (queryKeywords.length || 1)), 1) * 0.50;
 
-    // 7. Evento para indexação assíncrona de novos conteúdos
+      // B) Title Match (25%)
+      const titleLower = course.title.toLowerCase();
+      const titleMatch = queryKeywords.some(kw => titleLower.includes(kw)) ? 1 : 0;
+      const titleScore = titleMatch * 0.25;
+
+      // C) Semantic Score (15%) - de 0-1
+      const semanticScore = (course.similarityScore || 0) * 0.15;
+
+      // D) Platform/Internal Preference (10%)
+      const internalScore = (course.platformName.toLowerCase().includes('internal') || (course.internalRating || 0) >= 4) ? 0.10 : 0;
+
+      const finalScore = parseFloat((tagsScore + titleScore + semanticScore + internalScore).toFixed(4));
+      
+      return { 
+        ...course, 
+        relevanceScore: finalScore 
+      };
+    }).filter(r => (r.relevanceScore || 0) >= minRelevance);
+
+    // 7. Evento para indexação assíncrona de novos conteúdos (Alinhado com novo contrato)
     if (externalResults.length > 0) {
       this.eventEmitter.emit('course.batch_created', {
-        courses: externalResults,
-        query: q
+        courses: externalResults.map(c => ({
+          externalId: c.externalId,
+          platformId: c.platformId,
+          title: c.title,
+          description: c.description,
+          provider: c.platformName,
+          category: c.tags?.[0],
+          difficulty: c.level,
+          source: ChunkSource.EXTERNAL_COURSE
+        }))
       });
     }
 

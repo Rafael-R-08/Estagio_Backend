@@ -20,7 +20,7 @@ export class GlobalAuthGuard implements CanActivate {
       try {
         await this.jwtGuard.canActivate(context);
       } catch (e) {
-        // Ignorar erro se for público (utilizador não autenticado)
+        // Silently fail if public route (user stays anonymous)
       }
       return true;
     }

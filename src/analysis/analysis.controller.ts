@@ -2,7 +2,6 @@ import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AnalysisService } from '../ai/services/analysis.service';
 import { AnalyzeCourseDto, AnalyzeBatchDto } from './dto/analyze-course.dto';
-import { Public } from '../common/decorators/public.decorator';
 
 @ApiTags('analysis')
 @Controller('analysis')
@@ -14,7 +13,6 @@ export class AnalysisController {
    * Análise completa de um curso com IA
    */
   @Post('course')
-  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Analisa um curso com IA: resumo, tópicos, classificação e indexação',
@@ -29,7 +27,6 @@ export class AnalysisController {
    * Análise em batch de múltiplos cursos
    */
   @Post('batch')
-  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Analisa múltiplos cursos em batch',

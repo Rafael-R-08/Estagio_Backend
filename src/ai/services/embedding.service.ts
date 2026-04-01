@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ChunkSource } from '@prisma/client';
+import { ChunkSource, Prisma } from '@prisma/client';
 import { pipeline } from '@xenova/transformers';
 
 export interface SearchResult {
@@ -61,21 +61,21 @@ export class EmbeddingService implements OnModuleInit {
       const embeddingStr = `[${embedding.join(',')}]`;
       const metadataJson = metadata ? JSON.stringify(metadata) : null;
 
-      const result = await this.prisma.$queryRawUnsafe<any[]>(`
+      const result = await this.prisma.$queryRaw<any[]>(Prisma.sql`
         INSERT INTO "text_chunks" (
           id, content, embedding, source, "sourceId", metadata, "createdAt"
         )
         VALUES (
           gen_random_uuid(),
-          $1,
-          $2::vector,
-          $3::"ChunkSource",
-          $4,
-          $5::jsonb,
+          ${content},
+          ${embeddingStr}::vector,
+          ${source}::"ChunkSource",
+          ${sourceId || null},
+          ${metadataJson}::jsonb,
           NOW()
         )
         RETURNING id, content, source
-      `, content, embeddingStr, source, sourceId || null, metadataJson);
+      `);
 
       return result[0];
     } catch (error: any) {
@@ -97,26 +97,19 @@ export class EmbeddingService implements OnModuleInit {
       const queryEmbedding = await this.embed(query);
       const queryEmbeddingStr = `[${queryEmbedding.join(',')}]`;
 
-      let whereClause = '';
-      let params: any[] = [queryEmbeddingStr, topK];
-      
-      if (sourceFilter && sourceFilter.length > 0) {
-        const placeholders = sourceFilter.map((_, i) => `$${i + 3}`).join(',');
-        whereClause = `WHERE source IN (${placeholders})`;
-        params = [...params, ...sourceFilter];
-      }
+      const sourceInClause = sourceFilter && sourceFilter.length > 0 
+        ? Prisma.sql`WHERE source IN (${Prisma.join(sourceFilter)})` 
+        : Prisma.empty;
 
-      const querySql = `
+      const results = await this.prisma.$queryRaw<any[]>(Prisma.sql`
         SELECT 
           id, content, source, "sourceId", metadata, "createdAt",
-          (embedding <=> $1::vector) as distance
+          (embedding <=> ${queryEmbeddingStr}::vector) as distance
         FROM "text_chunks"
-        ${whereClause}
+        ${sourceInClause}
         ORDER BY distance ASC
-        LIMIT $2
-      `;
-
-      const results = await this.prisma.$queryRawUnsafe<any[]>(querySql, ...params);
+        LIMIT ${topK}
+      `);
 
       return results.map(row => ({
         id: row.id,

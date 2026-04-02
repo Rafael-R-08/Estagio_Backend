@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsDateString, IsInt, Min } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsNumber, Min } from 'class-validator';
 
 export class CreateCertificateDto {
   @ApiProperty({ example: 'uuid-do-training', description: 'ID do registo de formação associado' })
@@ -28,7 +28,7 @@ export class CreateCertificateDto {
 
   @ApiPropertyOptional({ example: 8 })
   @IsOptional()
-  @IsInt()
+  @IsNumber()
   @Min(0)
   durationHours?: number;
 }

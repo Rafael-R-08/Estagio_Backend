@@ -7,6 +7,7 @@ import { SearchQueryDto } from './dto/search-query.dto';
 import { CourseResult } from './interfaces/platform-adapter.interface';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ChunkSource } from '@prisma/client';
+import { isLikelyTrainingResult } from './utils/training-result-filter.util';
 
 @Injectable()
 export class SearchOrchestratorService {
@@ -25,7 +26,7 @@ export class SearchOrchestratorService {
    * Coordena adaptadores, cache DB, ranking semântico e enriquecimento.
    */
   async unifiedSearch(queryDto: SearchQueryDto) {
-    const { q, limit = 10, platforms, isFree, minRating, minRelevance = 0 } = queryDto;
+    const { q, limit = 10, page = 1, platforms, isFree, minRating, minRelevance = 0 } = queryDto;
     
     this.logger.log(`Iniciando pesquisa unificada para: "${q}" (Plataformas: ${platforms?.join(', ') || 'Todas'})`);
 
@@ -54,15 +55,17 @@ export class SearchOrchestratorService {
     for (const res of externalResultsRaw) {
       if (res.status === 'fulfilled' && res.value.results.length > 0) {
         const { platformId, results } = res.value;
-        externalResults.push(...results);
+        const filteredResults = results.filter((r) => isLikelyTrainingResult(r));
+        externalResults.push(...filteredResults);
         
         // Background: Gravar novos resultados na cache DB sem bloquear o request principal
-        void this.dbService.cacheResults(platformId, results);
+        void this.dbService.cacheResults(platformId, filteredResults);
       }
     }
 
     // 3. Combinação e Deduplicação (por URL)
-    const combined = this.deduplicateResults([...cachedResults, ...externalResults]);
+    const combined = this.deduplicateResults([...cachedResults, ...externalResults])
+      .filter((r) => isLikelyTrainingResult(r));
 
     // 4. Ranking Semântico (AI)
     const ranked = await this.rankingService.rankResults(q, combined);
@@ -99,7 +102,20 @@ export class SearchOrchestratorService {
       };
     }).filter(r => (r.relevanceScore || 0) >= minRelevance);
 
-    // 7. Evento para indexação assíncrona de novos conteúdos (Alinhado com novo contrato)
+    // 7. Paginação e Resposta Final
+    const total = finalResults.length;
+    const totalPages = Math.ceil(total / limit);
+    const paginatedResults = finalResults.slice((page - 1) * limit, page * limit);
+
+    // DEBUG: Confirm metadata of results in file
+    try {
+      const fs = require('fs');
+      fs.writeFileSync('/tmp/debug-search.json', JSON.stringify(paginatedResults, null, 2));
+      const first = paginatedResults[0];
+      this.logger.log(`[SEARCH_DEBUG] Primeiro Resultado: "${first.title}" | Level: ${first.level} | Duration: ${first.durationHours}h | Language: ${first.language}`);
+    } catch (err) {}
+
+    // 8. Evento para indexação assíncrona de novos conteúdos (Alinhado com novo contrato)
     if (externalResults.length > 0) {
       this.eventEmitter.emit('course.batch_created', {
         courses: externalResults.map(c => ({
@@ -117,8 +133,11 @@ export class SearchOrchestratorService {
 
     return {
       query: q,
-      total: finalResults.length,
-      results: finalResults.slice(0, limit),
+      total,
+      totalPages,
+      page,
+      limit,
+      results: paginatedResults,
       platformsAnalyzed: targetAdapters.map(a => a.platformName),
       timestamp: new Date().toISOString()
     };

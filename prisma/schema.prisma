@@ -64,6 +64,7 @@ model TrainingRecord {
   platform      LearningPlatform?  @relation(fields: [platformId], references: [id])
   user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   resources     TrainingResource[]
+  durationHours Float?
 
   @@index([userId])
   @@index([status])
@@ -96,6 +97,7 @@ model Certificate {
   status            ProcessingStatus @default(PENDING)
   training          TrainingRecord   @relation(fields: [trainingId], references: [id], onDelete: Cascade)
   user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  durationHours     Float?
 
   @@index([userId])
   @@index([expirationDate])
@@ -116,6 +118,7 @@ model Course {
   embedding     Unsupported("vector")?
   lastUpdated   DateTime               @default(now())
   isFree        Boolean?
+  language      String?
   platform      LearningPlatform       @relation(fields: [platformId], references: [id], onDelete: Cascade)
 
   @@unique([externalId, platformId])

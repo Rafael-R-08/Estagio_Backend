@@ -60,7 +60,7 @@ export class CertificatesController {
       type: 'object',
       required: ['file', 'trainingId'],
       properties: {
-        file: { type: 'string', format: 'binary', description: 'Ficheiro PDF ou imagem (máx 10MB)' },
+        file: { type: 'string', format: 'binary', description: 'Ficheiro PDF, imagem (png/jpg/webp/bmp/tiff) ou txt (máx 10MB)' },
         trainingId: { type: 'string', description: 'ID do registo de formação' },
         courseName: { type: 'string' },
         provider: { type: 'string' },

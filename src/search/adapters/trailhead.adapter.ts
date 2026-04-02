@@ -60,10 +60,11 @@ export class TrailheadAdapter extends BasePlatformAdapter {
       
       if (!title || seen.has(title)) return;
       
-      const link = card.find('a[href*="/content/learn/"]').attr('href') || card.find('a').attr('href');
+      const link = card.find('a[href*="/content/learn/"]').attr('href');
       if (!link) return;
 
       const url = link.startsWith('http') ? link : `${BASE_URL}${link}`;
+      if (!url.includes('/content/learn/')) return;
       const description = card.find('.th-card__description, [data-testid="card-description"], p').text().trim();
       
       const meta = card.text().toLowerCase();
@@ -114,12 +115,16 @@ export class TrailheadAdapter extends BasePlatformAdapter {
           for (const listItem of items) {
             const item = listItem.item || listItem;
             if (item && item.name && !seen.has(item.name)) {
+              const rawUrl = String(item.url || '');
+              const fullUrl = rawUrl.startsWith('http') ? rawUrl : `${BASE_URL}${rawUrl}`;
+              if (!fullUrl.includes('/content/learn/')) continue;
+
               seen.add(item.name);
               results.push({
-                externalId: `trailhead:${(item.url || '').split('/').pop() || item.name}`,
+                externalId: `trailhead:${(rawUrl || '').split('/').pop() || item.name}`,
                 title: item.name,
                 description: item.description || '',
-                url: item.url?.startsWith('http') ? item.url : `${BASE_URL}${item.url}`,
+                url: fullUrl,
                 isFree: true,
                 tags: [],
                 platformId: this.platform.id,

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CourseResult } from './interfaces/platform-adapter.interface';
 import { CourseLevel, Prisma } from '@prisma/client';
+import { isLikelyTrainingResult } from './utils/training-result-filter.util';
 
 @Injectable()
 export class CourseDbService {
@@ -74,6 +75,7 @@ export class CourseDbService {
         level: c.level as any,
         tags: c.tags,
         isFree: c.isFree ?? undefined,
+        language: c.language || undefined,
         platformId: c.platformId,
         platformName: c.platform.name,
         _localScore: score
@@ -81,6 +83,7 @@ export class CourseDbService {
     });
 
     return results
+      .filter((r) => isLikelyTrainingResult(r))
       .sort((a, b) => (b._localScore || 0) - (a._localScore || 0))
       .slice(0, limit)
       .map(({ _localScore: _, ...rest }) => rest);
@@ -124,6 +127,7 @@ export class CourseDbService {
             level: c.level as CourseLevel,
             tags: c.tags,
             isFree: c.isFree,
+            language: c.language,
             lastUpdated: new Date()
           })),
           skipDuplicates: true

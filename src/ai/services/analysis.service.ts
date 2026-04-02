@@ -45,10 +45,11 @@ export class AnalysisService {
 
     const prompt = buildFullCourseAnalysisPrompt(course);
     
-    // Chamada única com JSON Mode
+    // Chamada única com JSON Mode — sem cache para garantir análises independentes por curso
     const rawResponse = await this.aiService.generateText(prompt, {
       responseFormat: 'json_object',
       temperature: 0.1,
+      noCache: true,
     });
 
     const validated = JsonSafeParser.parse(rawResponse, FullAnalysisSchema);

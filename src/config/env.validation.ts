@@ -1,5 +1,5 @@
 import { plainToInstance } from 'class-transformer';
-import { IsEnum, IsString, validateSync, IsUrl, MinLength } from 'class-validator';
+import { IsEnum, IsString, IsOptional, validateSync, IsUrl, MinLength } from 'class-validator';
 
 enum Environment {
   Development = 'development',
@@ -27,6 +27,13 @@ class EnvironmentVariables {
 
   @IsString()
   SUPABASE_SERVICE_KEY: string;
+
+  @IsString()
+  REDIS_HOST: string;
+
+  @IsOptional()
+  @IsString()
+  REDIS_PASSWORD?: string;
 }
 
 export function validate(config: Record<string, unknown>) {

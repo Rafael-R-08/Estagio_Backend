@@ -23,6 +23,17 @@ export class SearchQueryDto {
   limit?: number = 10;
 
   @ApiProperty({
+    description: 'Número da página (paginação)',
+    default: 1,
+    required: false,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiProperty({
     description:
       'Filtrar por nome(s) de plataforma. Ex: "Microsoft Learn" ou ["Microsoft Learn","Academia Portugal Digital"]',
     example: 'Microsoft Learn',

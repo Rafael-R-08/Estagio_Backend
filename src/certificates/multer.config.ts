@@ -2,7 +2,7 @@ import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { BadRequestException } from '@nestjs/common';
 
-const ALLOWED_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg'];
+const ALLOWED_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tif', '.tiff', '.txt'];
 const MAX_SIZE_MB = 10;
 
 export const multerCertificatesConfig = {

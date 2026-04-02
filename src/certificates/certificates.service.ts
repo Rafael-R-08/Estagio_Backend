@@ -21,6 +21,18 @@ import { ProcessingStatus } from '@prisma/client';
 export class CertificatesService {
   private readonly logger = new Logger(CertificatesService.name);
 
+  private inferMimeTypeFromName(fileName: string): string | undefined {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith('.pdf')) return 'application/pdf';
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.bmp')) return 'image/bmp';
+    if (lower.endsWith('.tif') || lower.endsWith('.tiff')) return 'image/tiff';
+    if (lower.endsWith('.txt')) return 'text/plain';
+    return undefined;
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
@@ -71,6 +83,7 @@ export class CertificatesService {
       fileUrl,
       trainingTitle: training.title,
       originalName: file.originalname,
+      mimeType: file.mimetype,
     }, {
       attempts: 3,
       backoff: { type: 'exponential', delay: 5000 },
@@ -166,6 +179,7 @@ export class CertificatesService {
       fileUrl: cert.fileUrl,
       trainingTitle: training?.title || cert.courseName || 'Certificate',
       originalName: basename(cert.fileUrl),
+      mimeType: this.inferMimeTypeFromName(basename(cert.fileUrl)),
     }, {
       attempts: 3,
       backoff: { type: 'exponential', delay: 5000 },

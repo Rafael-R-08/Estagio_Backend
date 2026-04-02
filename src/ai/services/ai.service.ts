@@ -29,6 +29,7 @@ export class AiService implements OnModuleInit {
   private readonly logger = new Logger(AiService.name);
   private readonly groq: Groq;
   private readonly DEFAULT_MODEL = 'llama-3.3-70b-versatile';
+  private readonly OCR_LANGS = 'eng+por';
 
   constructor(
     private readonly configService: ConfigService,
@@ -176,16 +177,168 @@ export class AiService implements OnModuleInit {
   }
 
   /**
-   * Utilitário para ler PDF (Isolado do processamento de metadados)
+   * Extrai texto de documentos em múltiplos formatos.
+   * Fluxo: texto embutido (PDF/texto) -> OCR (imagem/PDF escaneado) -> fallback vazio.
    */
-  async extractPdfText(buffer: Buffer): Promise<string> {
+  async extractDocumentText(
+    buffer: Buffer,
+    options: { mimeType?: string; fileName?: string; maxChars?: number } = {},
+  ): Promise<string> {
+    const maxChars = options.maxChars || 40000;
+    const fileKind = this.detectFileKind(options.mimeType, options.fileName);
+
+    if (fileKind === 'text') {
+      return buffer.toString('utf-8').substring(0, maxChars);
+    }
+
+    if (fileKind === 'image') {
+      return this.extractImageText(buffer, maxChars);
+    }
+
+    if (fileKind === 'pdf') {
+      const pdfText = await this.extractPdfText(buffer, maxChars);
+      if (pdfText.trim().length > 0) return pdfText;
+
+      this.logger.warn('PDF sem camada de texto. A tentar OCR por página...');
+      return this.extractPdfTextWithOcr(buffer, maxChars);
+    }
+
+    // Fallback genérico: tenta PDF e depois OCR de imagem
+    const asPdf = await this.extractPdfText(buffer, maxChars);
+    if (asPdf.trim().length > 0) return asPdf;
+
+    return this.extractImageText(buffer, maxChars);
+  }
+
+  /**
+   * Utilitário para ler PDF com camada de texto (rápido e barato).
+   */
+  async extractPdfText(buffer: Buffer, maxChars = 40000): Promise<string> {
+    let parser: any = null;
+
     try {
-      const pdfParse = require('pdf-parse');
-      const data = await pdfParse(buffer);
-      return data.text.substring(0, 40000); 
+      const { PDFParse } = require('pdf-parse');
+      parser = new PDFParse({ data: buffer });
+
+      const data = await parser.getText();
+      const text = (data?.text || '').substring(0, maxChars);
+
+      if (!text.trim()) {
+        this.logger.warn('PDF parse concluido, mas sem texto extraivel.');
+      }
+
+      return text;
     } catch (error: any) {
       this.logger.error(`PDF Read Error: ${error.message}`);
       return '';
+    } finally {
+      if (parser) {
+        await parser.destroy().catch(() => undefined);
+      }
     }
+  }
+
+  /**
+   * OCR em imagem (PNG/JPG/etc.) via Tesseract.
+   */
+  async extractImageText(buffer: Buffer, maxChars = 40000): Promise<string> {
+    let worker: any = null;
+
+    try {
+      const tesseract: any = await import('tesseract.js');
+      const createWorker = tesseract.createWorker || tesseract.default?.createWorker;
+
+      if (!createWorker) {
+        this.logger.error('OCR Error: tesseract.js createWorker não disponível.');
+        return '';
+      }
+
+      worker = await createWorker(this.OCR_LANGS);
+      const result = await worker.recognize(buffer);
+      const text = String(result?.data?.text || '')
+        .replace(/\u0000/g, '')
+        .trim();
+
+      if (!text) {
+        this.logger.warn('OCR de imagem não encontrou texto.');
+      }
+
+      return text.substring(0, maxChars);
+    } catch (error: any) {
+      this.logger.error(`OCR Image Error: ${error.message}`);
+      return '';
+    } finally {
+      if (worker?.terminate) {
+        await worker.terminate().catch(() => undefined);
+      }
+    }
+  }
+
+  /**
+   * OCR para PDFs escaneados: renderiza páginas e corre OCR por página.
+   */
+  private async extractPdfTextWithOcr(buffer: Buffer, maxChars = 40000, maxPages = 3): Promise<string> {
+    let parser: any = null;
+
+    try {
+      const { PDFParse } = require('pdf-parse');
+      parser = new PDFParse({ data: buffer });
+
+      const screenshots = await parser.getScreenshot({
+        first: maxPages,
+        imageDataUrl: false,
+        imageBuffer: true,
+      });
+
+      const pages = Array.isArray(screenshots?.pages) ? screenshots.pages : [];
+      if (pages.length === 0) {
+        this.logger.warn('PDF OCR fallback: sem páginas renderizadas para OCR.');
+        return '';
+      }
+
+      const collected: string[] = [];
+      for (const page of pages) {
+        if (!page?.data || !Buffer.isBuffer(page.data)) continue;
+
+        const pageText = await this.extractImageText(
+          page.data,
+          Math.ceil(maxChars / Math.max(pages.length, 1)),
+        );
+
+        if (pageText) collected.push(pageText);
+
+        const mergedSoFar = collected.join('\n');
+        if (mergedSoFar.length >= maxChars) {
+          return mergedSoFar.substring(0, maxChars);
+        }
+      }
+
+      return collected.join('\n').substring(0, maxChars);
+    } catch (error: any) {
+      this.logger.error(`PDF OCR Error: ${error.message}`);
+      return '';
+    } finally {
+      if (parser) {
+        await parser.destroy().catch(() => undefined);
+      }
+    }
+  }
+
+  private detectFileKind(mimeType?: string, fileName?: string): 'pdf' | 'image' | 'text' | 'unknown' {
+    const mime = (mimeType || '').toLowerCase();
+    const name = (fileName || '').toLowerCase();
+
+    if (mime.includes('pdf') || name.endsWith('.pdf')) return 'pdf';
+
+    if (
+      mime.startsWith('image/') ||
+      ['.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff', '.webp'].some((ext) => name.endsWith(ext))
+    ) {
+      return 'image';
+    }
+
+    if (mime.startsWith('text/') || name.endsWith('.txt')) return 'text';
+
+    return 'unknown';
   }
 }

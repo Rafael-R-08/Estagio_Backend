@@ -8,6 +8,7 @@ import { ChunkSource } from '@prisma/client';
 @Injectable()
 export class IndexingSeedService implements OnModuleInit {
   private readonly logger = new Logger(IndexingSeedService.name);
+  private isSeeding = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -26,6 +27,12 @@ export class IndexingSeedService implements OnModuleInit {
   }
 
   async seedFromExistingData() {
+    if (this.isSeeding) {
+      this.logger.warn('Seed já em curso. Pedido ignorado para evitar duplicação.');
+      return;
+    }
+
+    this.isSeeding = true;
     this.logger.log('A carregar cursos das tabelas base para indexação...');
 
     try {
@@ -57,6 +64,8 @@ export class IndexingSeedService implements OnModuleInit {
 
     } catch (error) {
       this.logger.error(`Falha no seed de indexação: ${error.message}`);
+    } finally {
+      this.isSeeding = false;
     }
   }
 }

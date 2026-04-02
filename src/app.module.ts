@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, Logger } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
@@ -25,8 +25,6 @@ import { RolesGlobalGuard } from './common/guards/roles-global.guard';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import configuration from './config/configuration';
-import { IndexingSeedService } from './ai/services/indexing-seed.service';
-import { OnModuleInit } from '@nestjs/common';
 import { validate } from './config/env.validation';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 
@@ -75,10 +73,10 @@ import { BullModule } from '@nestjs/bullmq';
     { provide: APP_GUARD, useClass: RolesGlobalGuard },
   ],
 })
-export class AppModule implements OnModuleInit {
-  constructor(private readonly indexingSeedService: IndexingSeedService) {}
+export class AppModule {
+  private readonly logger = new Logger(AppModule.name);
 
-  async onModuleInit() {
-    console.log('LearningHub Backend inicializado com sucesso.');
+  onModuleInit() {
+    this.logger.log('LearningHub Backend inicializado com sucesso.');
   }
 }

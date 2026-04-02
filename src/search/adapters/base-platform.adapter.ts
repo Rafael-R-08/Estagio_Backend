@@ -5,6 +5,7 @@ import { CourseResult, IPlatformAdapter, PlatformConfig } from '../interfaces/pl
 export abstract class BasePlatformAdapter implements IPlatformAdapter {
   protected abstract readonly logger: Logger;
   abstract readonly platformName: string;
+  private readonly CACHE_VERSION = 'v3';
   
   private errorCount = 0;
   private readonly MAX_ERRORS = 5;
@@ -32,7 +33,7 @@ export abstract class BasePlatformAdapter implements IPlatformAdapter {
     }
 
     // 2. Check Cache
-    const cacheKey = `course_cache:${this.platformName.toLowerCase().replace(/\s+/g, '_')}:${query.toLowerCase()}:${JSON.stringify(filters)}`;
+    const cacheKey = `course_cache:${this.CACHE_VERSION}:${this.platformName.toLowerCase().replace(/\s+/g, '_')}:${query.toLowerCase()}:${JSON.stringify(filters)}`;
     const cached = await this.cache.get(cacheKey);
     if (cached) {
       this.logger.debug(`[${this.platformName}] Cache hit para: "${query}"`);

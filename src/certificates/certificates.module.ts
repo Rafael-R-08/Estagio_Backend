@@ -5,7 +5,7 @@ import { SupabaseStorageService } from './supabase-storage.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AiModule } from '../ai/ai.module';
 import { PdfProcessor } from './processors/pdf.processor';
-import { PdfService } from './pdf.service';
+
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule } from '@nestjs/config';
 
@@ -19,7 +19,7 @@ import { ConfigModule } from '@nestjs/config';
     }),
   ],
   controllers: [CertificatesController],
-  providers: [CertificatesService, SupabaseStorageService, PdfProcessor, PdfService],
-  exports: [CertificatesService, SupabaseStorageService, PdfService],
+  providers: [CertificatesService, SupabaseStorageService, PdfProcessor],
+  exports: [CertificatesService, SupabaseStorageService],
 })
 export class CertificatesModule {}

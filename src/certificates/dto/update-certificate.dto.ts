@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsOptional, IsDateString, IsInt, Min } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsNumber, Min } from 'class-validator';
 
 export class UpdateCertificateDto {
   @ApiPropertyOptional({ example: 'AZ-900: Microsoft Azure Fundamentals' })
@@ -24,7 +24,7 @@ export class UpdateCertificateDto {
 
   @ApiPropertyOptional({ example: 8 })
   @IsOptional()
-  @IsInt()
+  @IsNumber()
   @Min(0)
   durationHours?: number;
 }

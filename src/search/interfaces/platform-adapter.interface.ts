@@ -8,6 +8,7 @@ export interface CourseResult {
   durationHours?: number;
   level?: 'beginner' | 'intermediate' | 'advanced';
   tags: string[];
+  language?: string;
   platformId: string;
   platformName: string;
   /** Preenchido após ranking semântico (0 a 1) */

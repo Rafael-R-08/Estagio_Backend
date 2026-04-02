@@ -27,8 +27,15 @@ export class PdfProcessor extends WorkerHost {
     });
   }
 
+  private toSafeDate(value: string | null | undefined): Date | undefined {
+    if (!value) return undefined;
+    const parsed = Date.parse(value);
+    if (Number.isNaN(parsed)) return undefined;
+    return new Date(parsed);
+  }
+
   async process(job: Job<any, any, string>): Promise<any> {
-    const { certificateId, fileUrl, trainingTitle, originalName } = job.data;
+    const { certificateId, fileUrl, trainingTitle, originalName, mimeType } = job.data;
     const jobId = job.id!;
 
     this.emitStatus(jobId, 'job_started', { certificateId });
@@ -37,18 +44,19 @@ export class PdfProcessor extends WorkerHost {
       // 1. Obter idioma do utilizador
       const certData = await this.prisma.certificate.findUnique({
         where: { id: certificateId },
-        select: { userId: true },
+        select: { userId: true, trainingId: true },
       });
       const settings = await this.prisma.userSettings.findUnique({
         where: { userId: certData?.userId },
       });
       const lang = settings?.uiLanguage || 'pt';
 
-      // 2. Descarregar PDF do Supabase
+      // 2. Descarregar ficheiro do Supabase
       const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
       const buffer = Buffer.from(response.data);
+      const contentType = String(response.headers?.['content-type'] || mimeType || '');
 
-      this.emitStatus(jobId, 'pdf_downloaded', { size: buffer.length });
+      this.emitStatus(jobId, 'file_downloaded', { size: buffer.length, contentType });
 
       // 3. Extração estruturada via IA (Nova Lógica Robusta)
       this.logger.log(`Iniciando extração IA para o certificado: ${certificateId}`);
@@ -57,22 +65,44 @@ export class PdfProcessor extends WorkerHost {
         buffer, 
         trainingTitle, 
         originalName, 
-        lang
+        lang,
+        contentType,
       );
 
       this.emitStatus(jobId, 'ai_processed', { confidence: extracted.confidence });
 
-      // 4. Atualizar DB com resultado final mapeado pelo Zod
-      const updated = await this.prisma.certificate.update({
-        where: { id: certificateId },
-        data: {
-          status: ProcessingStatus.COMPLETED,
-          extractedMetadata: extracted as object,
-          courseName: extracted.courseName || undefined,
-          provider: extracted.institution || undefined, // Mapeado de institution para provider na DB
-          completionDate: extracted.date ? (isNaN(Date.parse(extracted.date)) ? undefined : new Date(extracted.date)) : undefined,
-        },
-      });
+      // 4. Atualizar DB com resultado final mapeado pelo Zod (usando transação para TrainingRecord)
+      const completionDate = this.toSafeDate(extracted.date);
+      let expirationDate = this.toSafeDate(extracted.expirationDate);
+
+      // Opção B: Fallback de 2 anos se a IA não detetar expiração mas houver data de conclusão
+      if (!expirationDate && completionDate) {
+        expirationDate = new Date(completionDate);
+        expirationDate.setFullYear(expirationDate.getFullYear() + 2);
+        this.logger.log(`Data de expiração calculada (padrão 2 anos): ${expirationDate.toISOString()}`);
+      }
+
+      const [updated] = await this.prisma.$transaction([
+        this.prisma.certificate.update({
+          where: { id: certificateId },
+          data: {
+            status: ProcessingStatus.COMPLETED,
+            extractedMetadata: extracted as object,
+            courseName: extracted.courseName || trainingTitle || undefined,
+            provider: extracted.institution || undefined,
+            completionDate,
+            expirationDate,
+            durationHours: extracted.durationHours || undefined,
+          },
+        }),
+        this.prisma.trainingRecord.update({
+          where: { id: certData!.trainingId },
+          data: {
+            durationHours: extracted.durationHours || undefined,
+            completedAt: completionDate,
+          }
+        })
+      ]);
 
       this.emitStatus(jobId, 'completed', { certificateId, metadata: extracted });
       return updated;

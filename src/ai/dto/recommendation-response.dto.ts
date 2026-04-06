@@ -2,19 +2,19 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RecommendedCourseDto {
   @ApiProperty({ example: 'AWS Cloud Practitioner Essentials' })
-  title: string;
+  title!: string;
 
   @ApiProperty({
     enum: ['improvement', 'interests', 'missing_skills'],
     example: 'improvement',
     description: 'Categoria da recomendação',
   })
-  category: 'improvement' | 'interests' | 'missing_skills';
+  category!: 'improvement' | 'interests' | 'missing_skills';
 
   @ApiProperty({
     example: 'Alinha diretamente com a tua função de Cloud Engineer.',
   })
-  reason: string;
+  reason!: string;
 
   @ApiPropertyOptional({ example: 'beginner' })
   level?: string;
@@ -48,20 +48,20 @@ export class RecommendationMetadataDto {
 
 export class RecommendationResponseDto {
   @ApiProperty({ type: [RecommendedCourseDto] })
-  courses: RecommendedCourseDto[];
+  courses!: RecommendedCourseDto[];
 
   @ApiProperty({
     example: true,
     description: 'true quando existem cursos do catálogo indexado',
   })
-  hasContextualCourses: boolean;
+  hasContextualCourses!: boolean;
 
   @ApiProperty({
     example:
       'Encontrámos 7 cursos que se adequam ao teu perfil de Cloud Engineer.',
   })
-  summary: string;
+  summary!: string;
 
   @ApiProperty({ type: RecommendationMetadataDto })
-  metadata: RecommendationMetadataDto;
+  metadata!: RecommendationMetadataDto;
 }

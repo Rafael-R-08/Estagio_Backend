@@ -3,9 +3,10 @@ import { TrainingsService } from './trainings.service';
 import { TrainingsController } from './trainings.controller';
 import { CertificatesModule } from '../certificates/certificates.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [PrismaModule, CertificatesModule],
+  imports: [PrismaModule, CertificatesModule, NotificationsModule],
   controllers: [TrainingsController],
   providers: [TrainingsService],
   exports: [TrainingsService],

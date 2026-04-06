@@ -6,6 +6,7 @@ import { MetadataExtractionService } from '../../ai/extractors/metadata-extracti
 import axios from 'axios';
 import { ProcessingStatus } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { CertificateProcessedEvent } from '../../notifications/events/certificate-processed.event';
 
 @Processor('pdf-processing', {
   concurrency: parseInt(process.env.BULLMQ_CONCURRENCY || '2', 10),
@@ -105,19 +106,38 @@ export class PdfProcessor extends WorkerHost {
       ]);
 
       this.emitStatus(jobId, 'completed', { certificateId, metadata: extracted });
+      this.eventEmitter.emit(
+        'certificate.processed',
+        new CertificateProcessedEvent(
+          certificateId,
+          certData!.userId,
+          updated.courseName ?? trainingTitle ?? '',
+          ProcessingStatus.COMPLETED,
+        ),
+      );
       return updated;
 
     } catch (error) {
       this.logger.error(`Erro no processamento do certificate ${certificateId}: ${error.message}`);
       this.emitStatus(jobId, 'failed', { error: error.message });
 
-      await this.prisma.certificate.update({
+      const failedCert = await this.prisma.certificate.update({
         where: { id: certificateId },
         data: { 
           status: ProcessingStatus.FAILED,
           errorMessage: error.message 
         },
       });
+      this.eventEmitter.emit(
+        'certificate.processed',
+        new CertificateProcessedEvent(
+          certificateId,
+          failedCert.userId,
+          failedCert.courseName ?? trainingTitle ?? '',
+          ProcessingStatus.FAILED,
+          error.message,
+        ),
+      );
 
       throw error;
     }

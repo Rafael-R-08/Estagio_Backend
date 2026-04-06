@@ -1,5 +1,6 @@
 // src/trainings/trainings.service.ts
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTrainingDto } from './dto/create-training.dto';
 import { UpdateTrainingDto } from './dto/update-training.dto';
@@ -9,16 +10,18 @@ import { CreateResourceDto } from './dto/create-resource.dto';
 import { UpdateResourceDto } from './dto/update-resource.dto';
 import { TrainingStatus } from '@prisma/client';
 import { SupabaseStorageService } from '../certificates/supabase-storage.service';
+import { TrainingCompletedEvent, TrainingCreatedEvent } from '../notifications/events/training.events';
 
 @Injectable()
 export class TrainingsService {
   constructor(
     public readonly prisma: PrismaService,
     private readonly storageService: SupabaseStorageService,
+    private readonly eventEmitter: EventEmitter2,
   ) { }
 
   async create(userId: string, dto: CreateTrainingDto) {
-    return this.prisma.trainingRecord.create({
+    const record = await this.prisma.trainingRecord.create({
       data: {
         userId,
         title: dto.title,
@@ -35,6 +38,24 @@ export class TrainingsService {
       },
       include: { platform: { select: { id: true, name: true } } },
     });
+
+    // Notify when a training is explicitly added to the plan (not passive access tracking)
+    if (dto.status !== TrainingStatus.accessed) {
+      this.eventEmitter.emit(
+        'training.created',
+        new TrainingCreatedEvent(record.id, userId, record.title),
+      );
+    }
+
+    // Notify immediately if created already as completed
+    if (dto.status === TrainingStatus.completed) {
+      this.eventEmitter.emit(
+        'training.completed',
+        new TrainingCompletedEvent(record.id, userId, record.title, record.completedAt ?? new Date()),
+      );
+    }
+
+    return record;
   }
 
   async trackAccess(userId: string, dto: TrackAccessDto) {
@@ -154,8 +175,8 @@ export class TrainingsService {
   }
 
   async update(userId: string, id: string, dto: UpdateTrainingDto) {
-    await this.findOne(userId, id);
-    return this.prisma.trainingRecord.update({
+    const existing = await this.findOne(userId, id);
+    const updated = await this.prisma.trainingRecord.update({
       where: { id },
       data: {
         ...(dto.title && { title: dto.title }),
@@ -176,6 +197,19 @@ export class TrainingsService {
         resources: { include: { files: true }, orderBy: { position: 'asc' } }
       },
     });
+
+    // Emit training.completed only on the transition to 'completed'
+    if (
+      dto.status === TrainingStatus.completed &&
+      existing.status !== TrainingStatus.completed
+    ) {
+      this.eventEmitter.emit(
+        'training.completed',
+        new TrainingCompletedEvent(id, userId, updated.title, updated.completedAt ?? new Date()),
+      );
+    }
+
+    return updated;
   }
 
   async remove(userId: string, id: string) {

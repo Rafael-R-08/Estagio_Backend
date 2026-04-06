@@ -3,15 +3,28 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { NotificationType, ServiceLine } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { EmailService } from '../notifications/email.service';
+import { buildNewMemberEmail } from '../notifications/templates/email-templates';
 import { UpdateAdminUserDto } from './dto/update-admin-user.dto';
 import { UpdateAdminPlatformDto } from './dto/update-admin-platform.dto';
 import { CreateAdminPlatformDto } from './dto/create-admin-platform.dto';
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) { }
+  private readonly logger = new Logger(AdminService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private notificationsService: NotificationsService,
+    private emailService: EmailService,
+    private config: ConfigService,
+  ) {}
 
   async getUsers() {
     return this.prisma.user.findMany({
@@ -72,8 +85,8 @@ export class AdminService {
       }
     }
 
-    await this.getUser(id);
-    return this.prisma.user.update({
+    const currentUser = await this.getUser(id);
+    const updatedUser = await this.prisma.user.update({
       where: { id },
       data: dto as any,
       select: {
@@ -84,8 +97,57 @@ export class AdminService {
         isActive: true,
         updatedAt: true,
         managedLineId: true,
+        serviceLine: true,
       },
     });
+
+    // Notify SL Manager when a user is assigned to (or moves to) a service line
+    if (dto.serviceLine && dto.serviceLine !== currentUser.serviceLine) {
+      this.notifyServiceLineManager(updatedUser as { id: string; name: string | null; email: string }, dto.serviceLine).catch((err) =>
+        this.logger.warn(`Falha ao notificar gestor de linha: ${err.message}`),
+      );
+    }
+
+    // Strip the internal serviceLine field before returning to match original select shape
+    const { serviceLine: _sl, ...result } = updatedUser;
+    return result;
+  }
+
+  private async notifyServiceLineManager(
+    newMember: { id: string; name: string | null; email: string },
+    serviceLine: ServiceLine,
+  ) {
+    const frontendUrl = this.config.get<string>('app.frontendUrl') ?? 'http://localhost:4200';
+
+    const manager = await this.prisma.user.findFirst({
+      where: { role: 'SERVICE_LINE_MANAGER', managedLineId: serviceLine, isActive: true },
+      select: { id: true, name: true, email: true, settings: true },
+    });
+
+    if (!manager) return;
+
+    const settings = manager.settings;
+
+    if (!settings || settings.notifyInApp) {
+      await this.notificationsService.create({
+        userId: manager.id,
+        type: NotificationType.GENERAL,
+        title: 'Novo membro na tua linha',
+        body: `${newMember.name ?? newMember.email} foi adicionado(a) à tua linha de serviço.`,
+        metadata: { memberId: newMember.id, serviceLine },
+      });
+    }
+
+    if (!settings || settings.notifyByEmail) {
+      const { subject, html, text } = buildNewMemberEmail(
+        manager.name ?? '',
+        newMember.name ?? '',
+        newMember.email,
+        serviceLine,
+        frontendUrl,
+      );
+      await this.emailService.sendMail({ to: manager.email, subject, html, text });
+    }
   }
 
   async deleteUser(id: string) {

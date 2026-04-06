@@ -26,5 +26,10 @@ export class UpdateAdminUserDto {
   @ApiProperty({ required: false, enum: ServiceLine })
   @IsOptional()
   @IsEnum(ServiceLine)
+  serviceLine?: ServiceLine;
+
+  @ApiProperty({ required: false, enum: ServiceLine })
+  @IsOptional()
+  @IsEnum(ServiceLine)
   managedLineId?: ServiceLine;
 }

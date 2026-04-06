@@ -14,8 +14,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { OnboardingDto } from './dto/onboarding.dto';
-import { Role } from '@prisma/client';
+import { Role, NotificationType } from '@prisma/client';
 import { CacheService } from '../cache/cache.service';
+import { EmailService } from '../notifications/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import {
+  buildVerificationEmail,
+  buildPasswordResetEmail,
+  buildWelcomeEmail,
+  buildPasswordChangedEmail,
+} from '../notifications/templates/email-templates';
 
 @Injectable()
 export class AuthService {
@@ -26,6 +34,8 @@ export class AuthService {
     private jwt: JwtService,
     private configService: ConfigService,
     private readonly cacheService: CacheService,
+    private readonly emailService: EmailService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -47,6 +57,23 @@ export class AuthService {
     });
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
+
+    // Fire-and-forget: welcome email + email verification + in-app notification
+    this.sendVerificationEmail(user.id, user.email).catch((err) =>
+      this.logger.warn(`Falha ao enviar email de verificação para ${user.email}: ${err.message}`),
+    );
+    const frontendUrl = this.configService.get<string>('app.frontendUrl');
+    const { subject, html, text } = buildWelcomeEmail(user.name ?? '', `${frontendUrl}/login`);
+    this.emailService.sendMail({ to: user.email, subject, html, text }).catch((err) =>
+      this.logger.warn(`Falha ao enviar email de boas-vindas para ${user.email}: ${err.message}`),
+    );
+    this.notificationsService.create({
+      userId: user.id,
+      type: NotificationType.WELCOME,
+      title: 'Bem-vindo ao LearningHub!',
+      body: 'A sua conta foi criada com sucesso. Complete o seu perfil para obter recomendações personalizadas.',
+    }).catch(() => { /* non-critical */ });
+
     return {
       ...tokens,
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
@@ -254,7 +281,11 @@ export class AuthService {
       secret: this.configService.get<string>('jwt.verificationTokenSecret') || 'dev-verification-secret',
       expiresIn: '24h',
     });
-    console.log(`Verification email token for ${email}: ${token}`);
+    const frontendUrl = this.configService.get<string>('app.frontendUrl');
+    const verificationUrl = `${frontendUrl}/auth/verify-email?token=${token}`;
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+    const { subject, html, text } = buildVerificationEmail(user?.name ?? '', verificationUrl);
+    await this.emailService.sendMail({ to: email, subject, html, text });
   }
 
   async verifyEmail(token: string) {
@@ -276,7 +307,10 @@ export class AuthService {
       secret: this.configService.get<string>('jwt.passwordResetTokenSecret') || 'dev-reset-secret',
       expiresIn: '1h',
     });
-    console.log(`Password reset token for ${email}: ${token}`);
+    const frontendUrl = this.configService.get<string>('app.frontendUrl');
+    const resetUrl = `${frontendUrl}/auth/reset-password?token=${token}`;
+    const { subject, html, text } = buildPasswordResetEmail(user.name ?? '', resetUrl);
+    await this.emailService.sendMail({ to: email, subject, html, text });
     return { message: 'Email de recuperação enviado com sucesso' };
   }
 
@@ -289,6 +323,14 @@ export class AuthService {
       if (!user) throw new NotFoundException('Usuário não encontrado');
       const passwordHash = await bcrypt.hash(newPassword, 10);
       await this.prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+      // Security alert: notify user that their password was changed
+      const frontendUrl = this.configService.get<string>('app.frontendUrl');
+      const { subject, html, text } = buildPasswordChangedEmail(user.name ?? '', frontendUrl ?? '');
+      this.emailService.sendMail({ to: user.email, subject, html, text }).catch((err) =>
+        this.logger.warn(`Falha ao enviar email de confirmação de password para ${user.email}: ${err.message}`),
+      );
+
       return { message: 'Senha redefinida com sucesso' };
     } catch {
       throw new UnauthorizedException('Invalid password reset token');

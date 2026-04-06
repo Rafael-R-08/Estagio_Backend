@@ -15,6 +15,8 @@ import { SlManagerModule } from './sl-manager/sl-manager.module';
 import { RagModule } from './rag/rag.module';
 import { RecommendationsModule } from './recommendations/recommendations.module';
 import { AnalysisModule } from './analysis/analysis.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { CalendarModule } from './calendar/calendar.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 import { AppController } from './app.controller';
@@ -61,6 +63,8 @@ import { BullModule } from '@nestjs/bullmq';
     RagModule,
     RecommendationsModule,
     AnalysisModule,
+    NotificationsModule,
+    CalendarModule,
   ],
 
   controllers: [AppController],

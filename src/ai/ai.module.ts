@@ -1,7 +1,5 @@
 // src/ai/ai.module.ts
-import { Module } from '@nestjs/common';
-import { EventEmitterModule } from '@nestjs/event-emitter';
-import { ScheduleModule } from '@nestjs/schedule';
+import { Module, forwardRef } from '@nestjs/common';
 import { AiService } from './services/ai.service';
 import { EmbeddingService } from './services/embedding.service';
 import { IndexingService } from './services/indexing.service';
@@ -12,17 +10,15 @@ import { AnalysisService } from './services/analysis.service';
 import { ConversationService } from './services/conversation.service';
 import { MetadataExtractionService } from './extractors/metadata-extraction.service';
 import { CourseIndexingListener } from './listeners/course-indexing.listener';
+import { CoursePlanService } from './services/course-plan.service';
 import { AiController } from './ai.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SearchModule } from '../search/search.module';
-import { forwardRef } from '@nestjs/common';
 
 @Module({
   imports: [
     PrismaModule,
     forwardRef(() => SearchModule),
-    EventEmitterModule,
-    ScheduleModule,
   ],
   controllers: [
     AiController
@@ -38,6 +34,7 @@ import { forwardRef } from '@nestjs/common';
     ConversationService,
     MetadataExtractionService,
     CourseIndexingListener,
+    CoursePlanService,
   ],
   exports: [
     AiService, 
@@ -49,6 +46,7 @@ import { forwardRef } from '@nestjs/common';
     AnalysisService,
     ConversationService,
     MetadataExtractionService,
+    CoursePlanService,
   ],
 })
 export class AiModule {}

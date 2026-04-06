@@ -1,15 +1,18 @@
-import { Controller, Get, Param, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiForbiddenResponse, ApiNotFoundResponse, ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
-import { Request } from 'express';
+import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { Role } from '@prisma/client';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { SlManagerService } from './sl-manager.service';
-
-interface AuthRequest extends Request {
-  user: { userId: string; email: string; role: string };
-}
 
 @ApiTags('Service Line Manager')
 @ApiBearerAuth()
@@ -19,22 +22,71 @@ interface AuthRequest extends Request {
 export class SlManagerController {
   constructor(private readonly slManagerService: SlManagerService) {}
 
-  @Get('users')
-  @ApiOperation({ summary: 'Get all users in the manager\'s service line' })
-  @ApiOkResponse({ description: 'Array of users with id, name, email, serviceLine, completed trainings count, certificates count' })
-  @ApiForbiddenResponse({ description: 'Forbidden for non SERVICE_LINE_MANAGER users' })
-  getUsers(@Req() req: AuthRequest) {
-    return this.slManagerService.getManagedUsers(req.user.userId);
+  // ── Overview ──────────────────────────────────────────────────────────────
+
+  @Get('overview')
+  @ApiOperation({ summary: 'KPIs e estatísticas agregadas da service line' })
+  @ApiOkResponse({
+    description:
+      'Total de membros, distribuição por nível, estatísticas de formações e certificados',
+  })
+  @ApiForbiddenResponse({ description: 'Acesso restrito a SERVICE_LINE_MANAGER' })
+  getOverview(@CurrentUser() managerId: string) {
+    return this.slManagerService.getLineOverview(managerId);
   }
 
+  // ── User list ─────────────────────────────────────────────────────────────
+
+  @Get('users')
+  @ApiOperation({ summary: 'Tabela de utilizadores da service line' })
+  @ApiOkResponse({
+    description:
+      'Lista com nome, função, nível, estado, formações concluídas, certificados ativos e alertas',
+  })
+  @ApiForbiddenResponse({ description: 'Acesso restrito a SERVICE_LINE_MANAGER' })
+  getUsers(@CurrentUser() managerId: string) {
+    return this.slManagerService.getManagedUsers(managerId);
+  }
+
+  // ── User detail ───────────────────────────────────────────────────────────
+
+  @Get('users/:id')
+  @ApiOperation({ summary: 'Perfil detalhado de um membro da service line' })
+  @ApiParam({ name: 'id', description: 'ID do utilizador' })
+  @ApiOkResponse({
+    description:
+      'Perfil completo: formações, certificados (com validade), skills e sumário de aprendizagem',
+  })
+  @ApiNotFoundResponse({ description: 'Utilizador não encontrado' })
+  @ApiForbiddenResponse({ description: 'Utilizador não pertence à sua service line' })
+  getUserDetail(@Param('id') id: string, @CurrentUser() managerId: string) {
+    return this.slManagerService.getUserDetail(managerId, id);
+  }
+
+  // ── Alerts ────────────────────────────────────────────────────────────────
+
+  @Get('alerts')
+  @ApiOperation({ summary: 'Alertas acionáveis da service line' })
+  @ApiOkResponse({
+    description:
+      'Certificados a expirar (critical/warning/info), utilizadores inativos há 60+ dias e utilizadores sem formações',
+  })
+  @ApiForbiddenResponse({ description: 'Acesso restrito a SERVICE_LINE_MANAGER' })
+  getAlerts(@CurrentUser() managerId: string) {
+    return this.slManagerService.getLineAlerts(managerId);
+  }
+
+  // ── Legacy ────────────────────────────────────────────────────────────────
+
   @Get('users/:id/progress')
-  @ApiOperation({ summary: 'Get learning progress of a specific user' })
+  @ApiOperation({
+    summary: '[Deprecated] Progresso do utilizador — usar GET /sl-manager/users/:id',
+    deprecated: true,
+  })
   @ApiParam({ name: 'id', description: 'User ID' })
-  @ApiOkResponse({ description: 'User progress with trainings list and certificates list' })
-  @ApiNotFoundResponse({ description: 'User does not exist' })
-  @ApiForbiddenResponse({ description: 'User belongs to a different service line' })
-  async getUserProgress(@Param('id') id: string, @Req() req: AuthRequest) {
-    const managedLineId = await this.slManagerService.getManagerLineId(req.user.userId);
-    return this.slManagerService.getUserProgress(managedLineId, id);
+  @ApiNotFoundResponse({ description: 'Utilizador não encontrado' })
+  @ApiForbiddenResponse({ description: 'Utilizador não pertence à sua service line' })
+  async getUserProgress(@Param('id') id: string, @CurrentUser() managerId: string) {
+    return this.slManagerService.getUserDetail(managerId, id);
   }
 }

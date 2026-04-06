@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AiService, GenerateOptions, ChatMessage } from './ai.service';
 import { EmbeddingService, SearchResult } from './embedding.service';
-import { ChunkSource } from '@prisma/client';
+import { ChunkSource, TrainingStatus } from '@prisma/client';
 import { buildRagPrompt } from '../templates/rag.template';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConversationService } from './conversation.service';
 import { CourseDbService } from '../../search/course-db.service';
-import { Observable, map, tap, finalize } from 'rxjs';
+import { Observable } from 'rxjs';
 
 export interface RagQueryOptions {
   topK?: number;
@@ -16,6 +16,7 @@ export interface RagQueryOptions {
   sourceFilter?: ChunkSource[];
   conversationId?: string;
   model?: string;
+  mentionedTrainingIds?: string[];
 }
 
 export interface RagResponse {
@@ -67,11 +68,20 @@ export class RagService {
       ? chunks.reduce((acc, c) => acc + (c.similarity || 0), 0) / chunks.length 
       : 0;
 
-    // 4. Construir Contexto
-    const { context, includedChunks } = await this.buildContext(chunks, userId, options.maxContextLength || 4000, lang);
+    // 4. Contexto de cursos mencionados explicitamente (@ mentions)
+    let mentionedContext = '';
+    let mentionedTitles: string[] = [];
+    if (options.mentionedTrainingIds?.length && userId) {
+      const result = await this.buildMentionedCoursesContext(options.mentionedTrainingIds, userId, lang);
+      mentionedContext = result.context;
+      mentionedTitles = result.titles;
+    }
 
-    // 5. Gerar Resposta com Histórico (se existir)
-    const userPrompt = buildRagPrompt(context, question, lang);
+    // 5. Construir Contexto
+    const { context, includedChunks } = await this.buildContext(chunks, userId, options.maxContextLength || 4000, lang, mentionedContext);
+
+    // 6. Gerar Resposta com Histórico (se existir)
+    const userPrompt = buildRagPrompt(context, question, lang, mentionedTitles);
 
     const answer = await this.aiService.generateText(userPrompt, {
       ...options.generateOptions,
@@ -118,9 +128,18 @@ export class RagService {
     }
 
     const chunks = await this.hybridSearch(question, options);
-    const { context } = await this.buildContext(chunks, userId, options.maxContextLength || 4000, lang);
-    const userPrompt = buildRagPrompt(context, question, lang);
-    let accumulatedAnswer = '';
+
+    let mentionedContext = '';
+    let mentionedTitles: string[] = [];
+    if (options.mentionedTrainingIds?.length && userId) {
+      const result = await this.buildMentionedCoursesContext(options.mentionedTrainingIds, userId, lang);
+      mentionedContext = result.context;
+      mentionedTitles = result.titles;
+    }
+
+    const { context } = await this.buildContext(chunks, userId, options.maxContextLength || 4000, lang, mentionedContext);
+    const userPrompt = buildRagPrompt(context, question, lang, mentionedTitles);
+
     const stream = await this.aiService.generateStream(userPrompt, {
       ...options.generateOptions,
       language: lang as 'pt' | 'en',
@@ -128,20 +147,25 @@ export class RagService {
       history,
     }, options.model);
 
-    // Persistir resposta final quando o stream terminar (apenas se for user autenticado)
-    return stream.pipe(
-      tap(chunk => { accumulatedAnswer += chunk; }),
-      finalize(async () => {
-        if (userId && accumulatedAnswer) {
-          try {
-            await this.conversationService.addMessage(conversationId, 'assistant', accumulatedAnswer);
-            this.logger.debug(`Stream finalizado e guardado para conversa: ${conversationId}`);
-          } catch (error: any) {
-            this.logger.error(`Erro ao guardar resposta de stream: ${error.message}`);
+    // Wrap stream to properly await persistence on completion (avoids finalize(async) anti-pattern)
+    return new Observable<string>(subscriber => {
+      let accumulated = '';
+      stream.subscribe({
+        next: chunk => { accumulated += chunk; subscriber.next(chunk); },
+        error: err => subscriber.error(err),
+        complete: async () => {
+          if (userId && accumulated) {
+            try {
+              await this.conversationService.addMessage(conversationId, 'assistant', accumulated);
+              this.logger.debug(`Stream finalizado e guardado para conversa: ${conversationId}`);
+            } catch (error: any) {
+              this.logger.error(`Erro ao guardar resposta de stream: ${error.message}`);
+            }
           }
-        }
-      })
-    );
+          subscriber.complete();
+        },
+      });
+    });
   }
 
   /**
@@ -194,7 +218,7 @@ export class RagService {
     return settings?.uiLanguage || 'pt';
   }
 
-  private async buildContext(chunks: SearchResult[], userId: string | undefined, maxLength: number, lang: string) {
+  private async buildContext(chunks: SearchResult[], userId: string | undefined, maxLength: number, lang: string, mentionedContext = '') {
     let context = '';
     const includedChunks: SearchResult[] = [];
     const isEn = lang === 'en';
@@ -210,6 +234,11 @@ export class RagService {
       }
     }
 
+    // Inject mentioned courses context as priority (before hybrid search results)
+    if (mentionedContext) {
+      context += mentionedContext;
+    }
+
     for (const chunk of chunks) {
       const entry = `[REF:${chunk.id}] ${chunk.content}\n`;
       if ((context + entry).length > maxLength) break;
@@ -218,5 +247,69 @@ export class RagService {
     }
 
     return { context, includedChunks };
+  }
+
+  private async buildMentionedCoursesContext(
+    trainingIds: string[],
+    userId: string,
+    lang: string,
+  ): Promise<{ context: string; titles: string[] }> {
+    const isEn = lang === 'en';
+    const trainings = await this.prisma.trainingRecord.findMany({
+      where: { id: { in: trainingIds }, userId },
+      include: { platform: { select: { name: true } } },
+    });
+
+    if (!trainings.length) return { context: '', titles: [] };
+
+    const titles: string[] = [];
+    let context = isEn ? '### MENTIONED COURSES (user explicitly referenced these):\n' : '### CURSOS MENCIONADOS (referenciados explicitamente pelo utilizador):\n';
+
+    for (const training of trainings) {
+      titles.push(training.title);
+
+      const header = isEn
+        ? `[MENTIONED: "${training.title}" | Status: ${training.status} | Platform: ${training.platform?.name || 'N/A'}]`
+        : `[MENCIONADO: "${training.title}" | Estado: ${training.status} | Plataforma: ${training.platform?.name || 'N/A'}]`;
+
+      // Fetch vector store knowledge about this course
+      const chunks = await this.embeddingService.searchSimilar(
+        training.title,
+        3,
+        [ChunkSource.EXTERNAL_COURSE, ChunkSource.COURSE_ANALYSIS],
+      );
+      const chunkContent = chunks.length
+        ? chunks.map(c => c.content).join('\n')
+        : '';
+
+      const notes = training.notes
+        ? (isEn ? `User notes: ${training.notes}` : `Notas do utilizador: ${training.notes}`)
+        : '';
+
+      const progress = training.progressLevel
+        ? (isEn ? `Progress: ${training.progressLevel}` : `Progresso: ${training.progressLevel}`)
+        : '';
+
+      context += `${header}\n${chunkContent}\n${notes}\n${progress}\n---\n`;
+    }
+
+    return { context, titles };
+  }
+
+  async getMentionableCourses(userId: string) {
+    return this.prisma.trainingRecord.findMany({
+      where: {
+        userId,
+        status: { in: [TrainingStatus.ongoing, TrainingStatus.priority, TrainingStatus.later] },
+      },
+      select: {
+        id: true,
+        title: true,
+        url: true,
+        status: true,
+        platform: { select: { name: true } },
+      },
+      orderBy: [{ status: 'asc' }, { title: 'asc' }],
+    });
   }
 }

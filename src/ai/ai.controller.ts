@@ -5,7 +5,6 @@ import {
   Get,
   Delete,
   Body,
-  Query,
   Param,
   HttpCode,
   HttpStatus,
@@ -15,19 +14,28 @@ import {
 } from '@nestjs/common';
 import { map } from 'rxjs/operators';
 import { Observable } from 'rxjs';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { EmbeddingService } from './services/embedding.service';
 import { AiService } from './services/ai.service';
 import { IndexingService } from './services/indexing.service';
 import { RecommendationService } from './services/recommendation.service';
 import { RagService } from './services/rag.service';
 import { ConversationService } from './services/conversation.service';
+import { CoursePlanService } from './services/course-plan.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../common/decorators/public.decorator';
+import { ChatWithContextDto } from './dto/chat-with-context.dto';
+import { CoursePlanRequestDto } from './dto/course-plan.dto';
+import { RecommendationResponseDto } from './dto/recommendation-response.dto';
 
 @ApiTags('AI & Knowledge')
 @ApiBearerAuth()
@@ -41,7 +49,8 @@ export class AiController {
     private readonly recommendationService: RecommendationService,
     private readonly ragService: RagService,
     private readonly conversationService: ConversationService,
-  ) { }
+    private readonly coursePlanService: CoursePlanService,
+  ) {}
 
   @Get('health')
   @Public()
@@ -59,20 +68,29 @@ export class AiController {
   @Post('recommendations')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Gera recomendações personalizadas ultra-precisas' })
-  async getRecommendations(@CurrentUser() userId: string) {
-    return this.recommendationService.recommendForUser(userId);
+  @ApiResponse({ status: 200, type: RecommendationResponseDto })
+  async getRecommendations(
+    @CurrentUser() userId: string,
+  ): Promise<RecommendationResponseDto> {
+    return this.recommendationService.recommendForUser(
+      userId,
+    ) as Promise<RecommendationResponseDto>;
   }
 
   @Post('recommendations/welcome')
   @Public()
-  @ApiOperation({ summary: 'Obtém a mensagem de boas-vindas do assistente (POST)' })
+  @ApiOperation({
+    summary: 'Obtém a mensagem de boas-vindas do assistente (POST)',
+  })
   async postWelcome(@CurrentUser() userId?: string) {
     return this.getWelcome(userId);
   }
 
   @Get('recommendations/welcome')
   @Public()
-  @ApiOperation({ summary: 'Obtém a mensagem de boas-vindas do assistente (GET)' })
+  @ApiOperation({
+    summary: 'Obtém a mensagem de boas-vindas do assistente (GET)',
+  })
   async getWelcome(@CurrentUser() userId?: string) {
     const welcome = await this.ragService.getWelcomeMessage(userId);
     return { welcome };
@@ -82,33 +100,61 @@ export class AiController {
    * --- CHAT & CONVERSAÇÕES ---
    */
 
+  @Get('chat/mentionable-courses')
+  @ApiOperation({
+    summary:
+      'Lista cursos que o utilizador pode mencionar no chat (@ mentions)',
+  })
+  async getMentionableCourses(@CurrentUser() userId: string) {
+    return this.ragService.getMentionableCourses(userId);
+  }
+
   @Post('chat/stream')
   @Sse()
-  @ApiOperation({ summary: 'Chat SSE com memória e busca híbrida' })
+  @ApiOperation({
+    summary:
+      'Chat SSE com memória, busca híbrida e suporte a @ mentions de cursos',
+  })
   async streamChat(
     @CurrentUser() userId: string,
-    @Body() dto: { prompt: string; conversationId?: string }
+    @Body() dto: ChatWithContextDto,
   ): Promise<Observable<MessageEvent>> {
     const stream = await this.ragService.queryStream(dto.prompt, {
       conversationId: dto.conversationId,
+      mentionedTrainingIds: dto.mentionedTrainingIds,
       generateOptions: { userId },
     });
 
-    return stream.pipe(
-      map(data => ({ data } as MessageEvent)),
-    );
+    return stream.pipe(map((data) => ({ data }) as MessageEvent));
   }
 
   @Post('chat')
-  @ApiOperation({ summary: 'Chat síncrono (não-stream)' })
+  @ApiOperation({ summary: 'Chat síncrono com suporte a @ mentions de cursos' })
   async simpleChat(
     @CurrentUser() userId: string,
-    @Body() dto: { prompt: string; conversationId?: string }
+    @Body() dto: ChatWithContextDto,
   ) {
     return this.ragService.query(dto.prompt, {
       conversationId: dto.conversationId,
+      mentionedTrainingIds: dto.mentionedTrainingIds,
       generateOptions: { userId },
     });
+  }
+
+  @Post('chat/course-plan')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Gera um plano de orientação estruturado para um curso específico',
+  })
+  async generateCoursePlan(
+    @CurrentUser() userId: string,
+    @Body() dto: CoursePlanRequestDto,
+  ) {
+    return this.coursePlanService.generateCoursePlan(
+      dto.trainingId,
+      userId,
+      dto.focus,
+    );
   }
 
   @Get('conversations')
@@ -117,9 +163,23 @@ export class AiController {
     return this.conversationService.listUserConversations(userId);
   }
 
+  @Get('conversations/:id/messages')
+  @ApiOperation({
+    summary: 'Carrega mensagens de uma conversa (restore no chat)',
+  })
+  async getConversationMessages(
+    @CurrentUser() userId: string,
+    @Param('id') id: string,
+  ) {
+    return this.conversationService.getConversationMessages(id, userId);
+  }
+
   @Delete('conversations/:id')
   @ApiOperation({ summary: 'Apaga uma conversa' })
-  async deleteConversation(@CurrentUser() userId: string, @Param('id') id: string) {
+  async deleteConversation(
+    @CurrentUser() userId: string,
+    @Param('id') id: string,
+  ) {
     await this.conversationService.deleteConversation(id, userId);
     return { status: 'deleted' };
   }

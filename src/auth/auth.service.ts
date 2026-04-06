@@ -15,13 +15,17 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { OnboardingDto } from './dto/onboarding.dto';
 import { Role } from '@prisma/client';
+import { CacheService } from '../cache/cache.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
     private configService: ConfigService,
+    private readonly cacheService: CacheService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -89,6 +93,8 @@ export class AuthService {
         onboardingDone: true,
         managedLineId: true,
         userFunction: true,
+        createdAt: true,
+        skills: { select: { skillName: true, level: true } },
       },
     });
     if (!user) throw new UnauthorizedException('User not found');
@@ -127,24 +133,57 @@ export class AuthService {
 
   async updateProfile(
     userId: string,
-    dto: { name?: string; experienceLevel?: any; interests?: string[]; serviceLine?: any; userFunction?: string },
+    dto: {
+      name?: string;
+      experienceLevel?: any;
+      interests?: string[];
+      serviceLine?: any;
+      userFunction?: string;
+      skills?: { skillName: string; level: any }[];
+    },
   ) {
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: dto,
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        experienceLevel: true,
-        interests: true,
-        serviceLine: true,
-        onboardingDone: true,
-        managedLineId: true,
-        userFunction: true,
-      },
-    });
+    const { skills, ...userData } = dto;
+
+    const profileSelect = {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      experienceLevel: true,
+      interests: true,
+      serviceLine: true,
+      onboardingDone: true,
+      managedLineId: true,
+      userFunction: true,
+      createdAt: true,
+      skills: { select: { skillName: true, level: true } },
+    } as const;
+
+    let user: any;
+
+    if (skills !== undefined) {
+      user = await this.prisma.$transaction(async (tx) => {
+        await tx.user.update({ where: { id: userId }, data: userData });
+        await tx.userSkill.deleteMany({ where: { userId } });
+        if (skills.length > 0) {
+          await tx.userSkill.createMany({
+            data: skills.map((s) => ({ userId, skillName: s.skillName, level: s.level })),
+          });
+        }
+        return tx.user.findUniqueOrThrow({ where: { id: userId }, select: profileSelect });
+      });
+    } else {
+      user = await this.prisma.user.update({
+        where: { id: userId },
+        data: userData,
+        select: profileSelect,
+      });
+    }
+
+    try {
+      await this.cacheService.invalidatePattern(`ai:*${userId}*`);
+    } catch (_) { /* cache invalidation is non-critical */ }
+
     return user;
   }
 

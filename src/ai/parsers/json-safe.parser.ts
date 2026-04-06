@@ -8,7 +8,10 @@ export class JsonSafeParser {
    * Limpa e valida um JSON retornado por um LLM usando Zod.
    * Suporta limpeza de tags markdown e caracteres indesejados.
    */
-  static parse<T>(raw: string, schema: z.ZodSchema<T>): T | null {
+  static parse<S extends z.ZodTypeAny>(
+    raw: string,
+    schema: S,
+  ): z.output<S> | null {
     if (!raw) return null;
 
     try {
@@ -20,19 +23,24 @@ export class JsonSafeParser {
       }
 
       // 2. Parse básico do objeto
-      const parsed = JSON.parse(cleaned);
+      const parsed = JSON.parse(cleaned) as unknown;
 
       // 3. Validação via Zod
       const validation = schema.safeParse(parsed);
-      
+
       if (validation.success) {
-        return validation.data;
+        return validation.data as z.output<S>;
       }
 
-      this.logger.warn(`Zod Validation Failure: ${JSON.stringify(validation.error.format())}`);
+      this.logger.warn(
+        `Zod Validation Failure: ${JSON.stringify(validation.error.format())}`,
+      );
       return null;
     } catch (error) {
-      this.logger.error(`Failed to parse JSON: ${error.message}. Input was: ${raw.substring(0, 50)}...`);
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to parse JSON: ${msg}. Input was: ${raw.substring(0, 50)}...`,
+      );
       return null;
     }
   }
@@ -40,18 +48,25 @@ export class JsonSafeParser {
   /**
    * Tenta extrair um array de JSON se o modelo falhar na instrução.
    */
-  static parseArray<T>(raw: string, schema: z.ZodSchema<T[]>): T[] {
+  static parseArray<S extends z.ZodTypeAny>(
+    raw: string,
+    schema: S,
+  ): z.output<S>[] {
     try {
       let cleaned = raw.trim();
       const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
       if (arrayMatch) {
         cleaned = arrayMatch[0];
       }
-      const parsed = JSON.parse(cleaned);
+      const parsed = JSON.parse(cleaned) as unknown;
       const validation = schema.safeParse(parsed);
-      return validation.success ? validation.data : [];
+      return validation.success
+        ? (validation.data as z.output<S>[])
+        : ([] as z.output<S>[]);
     } catch {
-      return [];
+      return [] as z.output<S>[];
     }
   }
 }
+
+

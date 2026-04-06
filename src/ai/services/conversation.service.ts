@@ -104,4 +104,20 @@ export class ConversationService {
       data: { title },
     });
   }
+
+  /**
+   * Carrega todas as mensagens de uma conversa (para restaurar histórico no chat).
+   */
+  async getConversationMessages(conversationId: string, userId: string) {
+    const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
+    if (!conv || conv.userId !== userId) throw new NotFoundException('Conversa não encontrada');
+
+    const messages = await this.prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, role: true, content: true, createdAt: true },
+    });
+
+    return { conversationId, title: conv.title, messages };
+  }
 }

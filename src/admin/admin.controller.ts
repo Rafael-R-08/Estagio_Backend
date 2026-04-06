@@ -1,15 +1,12 @@
-import { Body, Controller, Delete, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AdminService } from './admin.service';
 import { UpdateAdminUserDto } from './dto/update-admin-user.dto';
 import { UpdateAdminPlatformDto } from './dto/update-admin-platform.dto';
-import { Role, ServiceLine } from '@prisma/client';
-
-class UpdateRoleDto {
-  role: Role;
-  managedLineId?: ServiceLine;
-}
+import { CreateAdminPlatformDto } from './dto/create-admin-platform.dto';
+import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -34,26 +31,34 @@ export class AdminController {
 
   @Patch('users/:id')
   @ApiOperation({ summary: 'Atualizar utilizador (role, isActive, name)' })
-  updateUser(@Param('id') id: string, @Body() dto: UpdateAdminUserDto) {
-    return this.adminService.updateUser(id, dto);
+  updateUser(
+    @Param('id') id: string,
+    @Body() dto: UpdateAdminUserDto,
+    @CurrentUser() requesterId: string,
+  ) {
+    return this.adminService.updateUser(id, dto, requesterId);
   }
 
   @Patch('users/:id/role')
-  @ApiOperation({ summary: 'Atualizar role do utilizador' })
-  updateUserRole(@Param('id') id: string, @Body() dto: UpdateRoleDto) {
-    return this.adminService.updateUser(id, { role: dto.role, managedLineId: dto.managedLineId });
+  @ApiOperation({ summary: 'Atualizar role do utilizador (USER | ADMIN | SERVICE_LINE_MANAGER)' })
+  updateUserRole(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserRoleDto,
+    @CurrentUser() requesterId: string,
+  ) {
+    return this.adminService.updateUser(id, { role: dto.role, managedLineId: dto.managedLineId }, requesterId);
   }
 
   @Patch('users/:id/deactivate')
   @ApiOperation({ summary: 'Desativar utilizador' })
-  deactivateUser(@Param('id') id: string) {
-    return this.adminService.updateUser(id, { isActive: false });
+  deactivateUser(@Param('id') id: string, @CurrentUser() requesterId: string) {
+    return this.adminService.updateUser(id, { isActive: false }, requesterId);
   }
 
   @Patch('users/:id/activate')
   @ApiOperation({ summary: 'Ativar utilizador' })
-  activateUser(@Param('id') id: string) {
-    return this.adminService.updateUser(id, { isActive: true });
+  activateUser(@Param('id') id: string, @CurrentUser() requesterId: string) {
+    return this.adminService.updateUser(id, { isActive: true }, requesterId);
   }
 
   @Delete('users/:id')
@@ -78,9 +83,15 @@ export class AdminController {
     return this.adminService.getPlatforms();
   }
 
+  @Post('platforms')
+  @ApiOperation({ summary: 'Adicionar nova plataforma externa' })
+  createPlatform(@Body() dto: CreateAdminPlatformDto) {
+    return this.adminService.createPlatform(dto);
+  }
+
   @Patch('platforms/:id')
   @ApiOperation({
-    summary: 'Atualizar plataforma (isActive, isSearchEnabled, apiKey, ...)',
+    summary: 'Atualizar plataforma (isActive, isSearchEnabled, apiKey, apiEndpoint, config, ...)',
   })
   updatePlatform(@Param('id') id: string, @Body() dto: UpdateAdminPlatformDto) {
     return this.adminService.updatePlatform(id, dto);

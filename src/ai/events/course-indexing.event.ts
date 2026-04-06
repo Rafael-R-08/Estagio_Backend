@@ -11,11 +11,13 @@ export class CourseCreatedEvent {
     public readonly category?: string,
     public readonly difficulty?: string,
     public readonly source: ChunkSource = ChunkSource.EXTERNAL_COURSE,
+    public readonly durationHours?: number,
+    public readonly language?: string,
+    public readonly isFree?: boolean,
+    public readonly rating?: number,
   ) {}
 }
 
 export class CourseBatchCreatedEvent {
-  constructor(
-    public readonly courses: CourseCreatedEvent[]
-  ) {}
+  constructor(public readonly courses: CourseCreatedEvent[]) {}
 }

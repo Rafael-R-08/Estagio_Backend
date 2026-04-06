@@ -1,4 +1,5 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, Min, Max } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, Min, Max, ArrayMaxSize, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class AnalyzeCourseDto {
@@ -41,7 +42,10 @@ export class AnalyzeCourseDto {
 }
 
 export class AnalyzeBatchDto {
-  @ApiProperty({ description: 'Lista de cursos para analisar', type: [AnalyzeCourseDto] })
+  @ApiProperty({ description: 'Lista de cursos para analisar (máx. 20)', type: [AnalyzeCourseDto] })
   @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => AnalyzeCourseDto)
   courses: AnalyzeCourseDto[];
 }

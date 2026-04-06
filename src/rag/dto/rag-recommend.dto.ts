@@ -57,9 +57,10 @@ export class RagRecommendDto {
   @Max(10)
   topK?: number = 5;
 
-  @ApiProperty({
-    description: 'Perfil do utilizador para personalizar recomendações',
+  @ApiPropertyOptional({
+    description: 'Perfil do utilizador para personalizar recomendações (ignorado — perfil é carregado da BD)',
   })
+  @IsOptional()
   @Type(() => UserProfileDto)
-  userProfile: UserProfileDto;
+  userProfile?: UserProfileDto;
 }

@@ -108,8 +108,10 @@ export class RecommendationService {
     };
 
     // 4. Profile-hash cache — evita chamar Groq para perfis inalterados
+    //    O catalogFingerprint garante que novos cursos indexados invalidam a cache
     const profileHash = this.hashProfile(profile, topK);
-    const cacheKey = `ai:rec:v2:${userId}:${profileHash}`;
+    const catalogFingerprint = await this.getCatalogFingerprint();
+    const cacheKey = `ai:rec:v2:${userId}:${profileHash}:${catalogFingerprint}`;
     const cached = await this.cacheService.get(cacheKey);
     if (cached) {
       try {
@@ -385,6 +387,22 @@ export class RecommendationService {
   private hashProfile(profile: object, topK: number): string {
     const data = JSON.stringify({ profile, topK });
     return crypto.createHash('sha256').update(data).digest('hex').slice(0, 16);
+  }
+
+  /**
+   * Fingerprint do catálogo de cursos indexados.
+   * Combina count + timestamp do chunk mais recente — invalida a cache
+   * automaticamente sempre que novos cursos são indexados.
+   */
+  private async getCatalogFingerprint(): Promise<string> {
+    const agg = await this.prisma.textChunk.aggregate({
+      where: { source: ChunkSource.EXTERNAL_COURSE },
+      _count: { id: true },
+      _max: { createdAt: true },
+    });
+    const count = agg._count.id;
+    const latest = agg._max.createdAt?.getTime() ?? 0;
+    return `${count}-${latest}`;
   }
 
   private getFallbackRecommendations(lang: string): RecommendationOutput {

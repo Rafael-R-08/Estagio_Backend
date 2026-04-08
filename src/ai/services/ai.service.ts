@@ -147,7 +147,11 @@ export class AiService implements OnModuleInit {
   async generateStream(prompt: string, options: GenerateOptions = {}, model?: string): Promise<Observable<string>> {
     const selectedModel = model || this.DEFAULT_MODEL;
     const langLabel = options.language === 'en' ? 'English' : 'Portuguese (Portugal)';
-    const systemPrompt = options.systemPrompt || `Tu és o assistente profissional da Softinsa. Responde em ${langLabel}.`;
+    let systemPrompt = options.systemPrompt || `Tu és o assistente profissional da Softinsa. Responde em ${langLabel}.`;
+
+    if (options.language) {
+      systemPrompt += `\nCRITICAL: Respond STRICTLY in ${langLabel}.`;
+    }
 
     return new Observable(observer => {
       this.withRetry(async () => {

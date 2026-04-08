@@ -16,7 +16,7 @@ export class CourseDbService {
   async searchFromCache(
     q: string,
     limit: number,
-    filters?: { isFree?: boolean; minRating?: number; minRelevance?: number; platforms?: string[] }
+    filters?: { isFree?: boolean; minRating?: number; minRelevance?: number; platforms?: string[]; level?: string; language?: string }
   ): Promise<CourseResult[]> {
     const query = q || '';
     const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 1);
@@ -43,11 +43,21 @@ export class CourseDbService {
       where.rating = { gte: filters.minRating };
     }
 
+    if (filters?.level) {
+      where.level = filters.level as any;
+    }
+
+    if (filters?.language) {
+      where.language = filters.language;
+    }
+
     const courses = await this.prisma.course.findMany({
       where,
       include: { platform: true },
-      take: limit * 2, // Pegamos mais para filtrar por relevância manual ou ranking
-      orderBy: { lastUpdated: 'desc' },
+      take: limit * 2,
+      orderBy: terms.length === 0
+        ? [{ rating: 'desc' as const }, { lastUpdated: 'desc' as const }]
+        : { lastUpdated: 'desc' as const },
     });
 
     // Ranking básico de texto se houver query
@@ -163,5 +173,27 @@ export class CourseDbService {
       where: { externalId },
       include: { platform: true }
     });
+  }
+
+  /**
+   * Conta o total de cursos indexados, opcionalmente filtrado.
+   * Usado pelo browse mode para o banner "X+ formações disponíveis".
+   */
+  async countAll(filters?: { isFree?: boolean; minRating?: number; platforms?: string[]; level?: string; language?: string }): Promise<number> {
+    const where: Prisma.CourseWhereInput = {};
+    if (filters?.isFree !== undefined) where.isFree = filters.isFree;
+    if (filters?.platforms && filters.platforms.length > 0) {
+      where.platform = { name: { in: filters.platforms } };
+    }
+    if (filters?.minRating !== undefined) {
+      where.rating = { gte: filters.minRating };
+    }
+    if (filters?.level) {
+      where.level = filters.level as any;
+    }
+    if (filters?.language) {
+      where.language = filters.language;
+    }
+    return this.prisma.course.count({ where });
   }
 }

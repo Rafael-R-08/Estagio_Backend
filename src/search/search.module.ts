@@ -16,6 +16,7 @@ import { AcademiaPortugalDigitalAdapter } from './adapters/academia-portugal-dig
 import { TrailheadAdapter } from './adapters/trailhead.adapter';
 import { SoftinsaEverydayLearningAdapter } from './adapters/softinsa-el.adapter';
 import { PlatformRegistry } from './platform.registry';
+import { CatalogSyncService } from './catalog-sync.service';
 
 import { forwardRef } from '@nestjs/common';
 
@@ -35,7 +36,8 @@ import { forwardRef } from '@nestjs/common';
     AcademiaPortugalDigitalAdapter,
     TrailheadAdapter,
     SoftinsaEverydayLearningAdapter,
+    CatalogSyncService,
   ],
-  exports: [SearchService, PlatformRegistry, SearchOrchestratorService, CourseDbService],
+  exports: [SearchService, PlatformRegistry, SearchOrchestratorService, CourseDbService, CatalogSyncService],
 })
 export class SearchModule {}

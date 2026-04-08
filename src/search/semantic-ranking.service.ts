@@ -15,6 +15,8 @@ export class SemanticRankingService {
    */
   async rankResults(query: string, courses: CourseResult[]): Promise<CourseResult[]> {
     if (courses.length === 0) return [];
+    // Browse mode: sem query, devolver sem ranking semântico
+    if (!query || !query.trim()) return courses;
 
     try {
       // 1. Procurar similaridade no Vector Store local (para cursos já indexados)

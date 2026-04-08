@@ -1,14 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsArray, IsInt, IsBoolean, IsNumber, IsOptional, IsString, Max, Min, IsEnum, Length, IsNotEmpty } from 'class-validator';
+import { IsArray, IsInt, IsBoolean, IsNumber, IsOptional, IsString, Max, Min, IsEnum, Length } from 'class-validator';
 import { CourseLevel } from '@prisma/client';
 
 export class SearchQueryDto {
-  @ApiProperty({ description: 'Termo de pesquisa', example: 'Azure DevOps' })
+  @ApiProperty({ description: 'Termo de pesquisa (omitir ou deixar vazio para browse mode)', example: 'Azure DevOps', required: false })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  @Length(2, 100)
-  q: string;
+  @Length(0, 100)
+  q?: string;
 
   @ApiProperty({
     description: 'Número máximo de resultados por plataforma',

@@ -5,7 +5,6 @@ import { RagService } from '../ai/services/rag.service';
 import { RecommendationService } from '../ai/services/recommendation.service';
 import { RagQueryDto } from './dto/rag-query.dto';
 import { RagRecommendDto } from './dto/rag-recommend.dto';
-import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
 @ApiTags('rag')
@@ -22,7 +21,6 @@ export class RagController {
    * Pipeline RAG completo: pesquisa semântica + resposta do LLM
    */
   @Post('query')
-  @Public()
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Faz uma pergunta usando o pipeline RAG' })
@@ -32,7 +30,7 @@ export class RagController {
   })
   async query(
     @Body() dto: RagQueryDto,
-    @CurrentUser() userId?: string
+    @CurrentUser() userId: string
   ) {
     return this.ragService.query(dto.query, { 
       topK: dto.topK,
@@ -45,7 +43,6 @@ export class RagController {
    * Recomendações personalizadas baseadas no perfil do utilizador
    */
   @Post('recommend')
-  @Public()
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
@@ -57,7 +54,7 @@ export class RagController {
   })
   async recommend(
     @Body() dto: RagRecommendDto,
-    @CurrentUser() userId?: string
+    @CurrentUser() userId: string
   ) {
     return this.recommendationService.recommendForUser(
       userId,
@@ -71,9 +68,8 @@ export class RagController {
    * Mensagem de boas-vindas inicial
    */
   @Get('welcome')
-  @Public()
   @ApiOperation({ summary: 'Obtém a mensagem de boas-vindas do assistente' })
-  async welcome(@CurrentUser() userId?: string) {
+  async welcome(@CurrentUser() userId: string) {
     const welcome = await this.ragService.getWelcomeMessage(userId);
     return { welcome };
   }

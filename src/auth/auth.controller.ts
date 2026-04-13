@@ -1,5 +1,5 @@
 // src/auth/auth.controller.ts
-import { Body, Controller, Get, Post, Patch, Query, HttpCode, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Patch, HttpCode, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -10,6 +10,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { OnboardingDto } from './dto/onboarding.dto';
+import { UpdateSettingsDto } from './dto/update-settings.dto';
 
 interface AuthRequest extends Request {
   user: { userId: string; email: string; role: string };
@@ -74,35 +75,6 @@ export class AuthController {
     return this.auth.refreshToken(dto.refreshToken);
   }
 
-  @Public()
-  @Get('verify-email')
-  @ApiOperation({ summary: 'Verificar email' })
-  @ApiResponse({ status: 200, description: 'Email verificado com sucesso' })
-  @ApiResponse({ status: 401, description: 'Token de verificação inválido' })
-  verifyEmail(@Query('token') token: string) {
-    return this.auth.verifyEmail(token);
-  }
-
-  @Public()
-  @HttpCode(200)
-  @Post('send-password-reset-email')
-  @ApiOperation({ summary: 'Enviar email de recuperação de senha' })
-  @ApiResponse({ status: 200, description: 'Email enviado com sucesso' })
-  @ApiResponse({ status: 404, description: 'Utilizador não encontrado' })
-  sendPasswordResetEmail(@Body('email') email: string) {
-    return this.auth.sendPasswordResetEmail(email);
-  }
-
-  @Public()
-  @HttpCode(200)
-  @Post('reset-password')
-  @ApiOperation({ summary: 'Redefinir senha' })
-  @ApiResponse({ status: 200, description: 'Senha redefinida com sucesso' })
-  @ApiResponse({ status: 401, description: 'Token inválido' })
-  resetPassword(@Query('token') token: string, @Body('newPassword') newPassword: string) {
-    return this.auth.resetPassword(token, newPassword);
-  }
-
   @Get('me/settings')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Obter definições do utilizador autenticado' })
@@ -115,7 +87,7 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Atualizar definições do utilizador autenticado' })
   @ApiResponse({ status: 200, description: 'Definições atualizadas' })
-  updateMySettings(@Req() req: AuthRequest, @Body() dto: any) {
+  updateMySettings(@Req() req: AuthRequest, @Body() dto: UpdateSettingsDto) {
     return this.auth.upsertSettings(req.user.userId, dto);
   }
 }

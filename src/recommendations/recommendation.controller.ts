@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Get, HttpCode, HttpStatus, UseGuards, Delete } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { IsOptional, IsString } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
@@ -46,5 +46,16 @@ export class RecommendationController {
     return this.recommendationService.recommendForUser(userId);
   }
 
-
+  /**
+   * DELETE /recommendations/me/cache
+   * Invalida a cache e gera novas recomendações para o utilizador autenticado
+   */
+  @Delete('me/cache')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Força nova geração de recomendações (ignora cache)',
+  })
+  async refreshRecommendations(@CurrentUser() userId: string) {
+    return this.recommendationService.recommendForUser(userId, undefined, undefined, true);
+  }
 }

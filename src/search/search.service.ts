@@ -23,8 +23,7 @@ export class SearchService {
    * Facada para a pesquisa unificada principal.
    */
   async search(dto: SearchQueryDto, userId?: string) {
-    // userId pode ser usado para personalização futura (recomendações)
-    return this.orchestrator.unifiedSearch(dto);
+    return this.orchestrator.unifiedSearch(dto, userId);
   }
 
   /**
@@ -35,14 +34,14 @@ export class SearchService {
     return this.orchestrator.unifiedSearch({
       ...dto,
       minRelevance: dto.minRelevance || 0.1, // Força um mínimo de relevância
-    });
+    }, userId);
   }
 
   /**
-   * Detalhe de um curso.
+   * Detalhe de um curso, opcionalmente enriquecido com o estado do utilizador.
    */
-  async getCourseByExternalId(externalId: string) {
-    return this.dbService.findGlobalByExternalId(externalId);
+  async getCourseByExternalId(externalId: string, userId?: string) {
+    return this.dbService.findGlobalByExternalId(externalId, userId);
   }
 
   /**

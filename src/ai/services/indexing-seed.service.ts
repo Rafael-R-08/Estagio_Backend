@@ -23,9 +23,12 @@ export class IndexingSeedService implements OnModuleInit {
 
     if (count === 0) {
       this.logger.log(
-        'TextChunk está vazio. Iniciando seed automático de indexação...',
+        'TextChunk está vazio. Iniciando seed automático de indexação em background...',
       );
-      await this.seedFromExistingData();
+      // Fire-and-forget: does not block app startup
+      this.seedFromExistingData().catch((err) =>
+        this.logger.error(`Erro no seed automático: ${err.message}`),
+      );
     } else {
       this.logger.log(
         `Conhecimento já indexado (${count} chunks). Seed ignorado.`,

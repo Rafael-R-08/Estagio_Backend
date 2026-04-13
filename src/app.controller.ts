@@ -1,24 +1,14 @@
 import { Controller, Get } from '@nestjs/common';
-import { AppService } from './app.service';
-import { AiService } from './ai/services/ai.service';
-
 import { Public } from './common/decorators/public.decorator';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 
+@ApiTags('health')
 @Controller()
 export class AppController {
-  constructor(
-    private readonly appService: AppService,
-    private readonly aiService: AiService,
-  ) {}
-
-  @Get()
-  getHello(): string {
-    return this.appService.getHello();
-  }
-
   @Public()
-  @Get('ai/test')
-  async testAi() {
-    return await this.aiService.generateText('Olá, quem és tu?');
+  @Get('health')
+  @ApiOperation({ summary: 'Health check' })
+  health() {
+    return { status: 'ok', timestamp: new Date().toISOString() };
   }
 }

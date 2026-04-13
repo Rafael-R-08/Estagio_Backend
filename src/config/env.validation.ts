@@ -22,6 +22,18 @@ class EnvironmentVariables {
   @MinLength(32, { message: 'JWT_SECRET deve ter pelo menos 32 caracteres para segurança.' })
   JWT_SECRET: string;
 
+  @IsString()
+  @MinLength(32, { message: 'JWT_REFRESH_TOKEN_SECRET deve ter pelo menos 32 caracteres para segurança.' })
+  JWT_REFRESH_TOKEN_SECRET: string;
+
+  @IsString()
+  @MinLength(32, { message: 'JWT_VERIFICATION_TOKEN_SECRET deve ter pelo menos 32 caracteres para segurança.' })
+  JWT_VERIFICATION_TOKEN_SECRET: string;
+
+  @IsString()
+  @MinLength(32, { message: 'JWT_PASSWORD_RESET_TOKEN_SECRET deve ter pelo menos 32 caracteres para segurança.' })
+  JWT_PASSWORD_RESET_TOKEN_SECRET: string;
+
   @IsUrl()
   SUPABASE_URL: string;
 

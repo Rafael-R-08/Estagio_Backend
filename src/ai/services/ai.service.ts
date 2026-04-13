@@ -35,12 +35,12 @@ export class AiService implements OnModuleInit {
     private readonly configService: ConfigService,
     public readonly cache: CacheService,
   ) {
-    const apiKey = this.configService.get('GROQ_API_KEY') || process.env.GROQ_API_KEY;
+    const apiKey = this.configService.get<string>('groq.apiKey');
     this.groq = new Groq({ apiKey });
   }
 
   onModuleInit() {
-    const apiKey = this.configService.get('GROQ_API_KEY') || process.env.GROQ_API_KEY;
+    const apiKey = this.configService.get<string>('groq.apiKey');
     if (!apiKey) {
       this.logger.error('CRITICAL: GROQ_API_KEY não está definida nas variáveis de ambiente!');
       this.logger.warn('As funcionalidades de AI (Chat, RAG, Recomendações) podem falhar.');

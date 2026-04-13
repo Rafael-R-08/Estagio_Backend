@@ -1,17 +1,8 @@
 import { Body, Controller, Get, Patch } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
 import { AuthService } from './auth.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-
-class UpdateSettingsDto {
-  @IsOptional() @IsBoolean() notifyWeeklyRecs?: boolean;
-  @IsOptional() @IsBoolean() notifyCertExpiry?: boolean;
-  @IsOptional() @IsBoolean() notifyProgress?: boolean;
-  @IsOptional() @IsBoolean() notifyByEmail?: boolean;
-  @IsOptional() @IsBoolean() notifyInApp?: boolean;
-  @IsOptional() @IsString()  uiLanguage?: string;
-}
+import { UpdateSettingsDto } from './dto/update-settings.dto';
 
 @ApiTags('settings')
 @ApiBearerAuth()

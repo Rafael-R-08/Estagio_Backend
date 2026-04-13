@@ -20,8 +20,9 @@ import { NotificationsModule } from '../notifications/notifications.module';
         return {
           secret: config.get<string>('jwt.secret'),
           signOptions: {
-            expiresIn: config.get<string>('jwt.expiresIn') as
+            expiresIn: config.get<string>('jwt.accessTokenExpiresIn') as
              `${number}${'ms' | 's' | 'm' | 'h' | 'd' | 'w' | 'y'}`,
+
           },
         };
       },

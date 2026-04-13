@@ -3,26 +3,24 @@ import {
   Injectable, 
   ConflictException, 
   UnauthorizedException, 
-  NotFoundException,
   Logger
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { OnboardingDto } from './dto/onboarding.dto';
+import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { Role, NotificationType } from '@prisma/client';
 import { CacheService } from '../cache/cache.service';
 import { EmailService } from '../notifications/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
-  buildVerificationEmail,
-  buildPasswordResetEmail,
   buildWelcomeEmail,
-  buildPasswordChangedEmail,
 } from '../notifications/templates/email-templates';
 
 @Injectable()
@@ -58,10 +56,7 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
-    // Fire-and-forget: welcome email + email verification + in-app notification
-    this.sendVerificationEmail(user.id, user.email).catch((err) =>
-      this.logger.warn(`Falha ao enviar email de verificação para ${user.email}: ${err.message}`),
-    );
+    // Fire-and-forget: welcome email + in-app notification
     const frontendUrl = this.configService.get<string>('app.frontendUrl');
     const { subject, html, text } = buildWelcomeEmail(user.name ?? '', `${frontendUrl}/login`);
     this.emailService.sendMail({ to: user.email, subject, html, text }).catch((err) =>
@@ -234,7 +229,7 @@ export class AuthService {
     });
   }
 
-  async upsertSettings(userId: string, dto: any) {
+  async upsertSettings(userId: string, dto: UpdateSettingsDto) {
     return this.prisma.userSettings.upsert({
       where: { userId },
       update: dto,
@@ -242,17 +237,27 @@ export class AuthService {
     });
   }
 
+  private parseDurationMs(duration: string): number {
+    const units: Record<string, number> = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
+    const match = /^(\d+)(ms|s|m|h|d|w)$/.exec(duration);
+    if (!match) return 7 * 86_400_000;
+    return parseInt(match[1], 10) * (units[match[2]] ?? 0);
+  }
+
   private async generateTokens(sub: string, email: string, role: Role) {
     const payload = { sub, email, role };
     const secret = this.configService.get<string>('jwt.secret') || 'dev-secret';
     const refreshSecret = this.configService.get<string>('jwt.refreshTokenSecret') || 'dev-refresh-secret';
+    const accessExpiresIn = this.configService.get<string>('jwt.accessTokenExpiresIn') || '15m';
+    const refreshExpiresIn = this.configService.get<string>('jwt.refreshTokenExpiresIn') || '7d';
 
-    const accessToken = await this.jwt.signAsync(payload, { secret, expiresIn: '15m' });
-    const refreshToken = await this.jwt.signAsync(payload, { secret: refreshSecret, expiresIn: '7d' });
+    const accessToken = await this.jwt.signAsync(payload, { secret, expiresIn: accessExpiresIn as any });
+    const refreshToken = await this.jwt.signAsync(payload, { secret: refreshSecret, expiresIn: refreshExpiresIn as any });
 
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
+    const expiresAt = new Date(Date.now() + this.parseDurationMs(refreshExpiresIn));
     await this.prisma.refreshToken.create({
-      data: { userId: sub, token: refreshToken, expiresAt },
+      data: { userId: sub, token: tokenHash, expiresAt },
     });
 
     return { access_token: accessToken, refresh_token: refreshToken };
@@ -262,78 +267,18 @@ export class AuthService {
     try {
       const refreshSecret = this.configService.get<string>('jwt.refreshTokenSecret') || 'dev-refresh-secret';
       const payload = await this.jwt.verifyAsync(refreshToken, { secret: refreshSecret });
-      const storedToken = await this.prisma.refreshToken.findUnique({ where: { token: refreshToken } });
+      const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
+      const storedToken = await this.prisma.refreshToken.findUnique({ where: { token: tokenHash } });
       if (!storedToken || storedToken.expiresAt < new Date()) throw new UnauthorizedException('Invalid refresh token');
       const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
       if (!user) throw new UnauthorizedException('Invalid refresh token');
       
       // Revoke old token
-      await this.prisma.refreshToken.delete({ where: { token: refreshToken } });
+      await this.prisma.refreshToken.delete({ where: { token: tokenHash } });
       
       return this.generateTokens(user.id, user.email, user.role);
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
-    }
-  }
-
-  async sendVerificationEmail(userId: string, email: string) {
-    const token = await this.jwt.signAsync({ userId }, {
-      secret: this.configService.get<string>('jwt.verificationTokenSecret') || 'dev-verification-secret',
-      expiresIn: '24h',
-    });
-    const frontendUrl = this.configService.get<string>('app.frontendUrl');
-    const verificationUrl = `${frontendUrl}/auth/verify-email?token=${token}`;
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
-    const { subject, html, text } = buildVerificationEmail(user?.name ?? '', verificationUrl);
-    await this.emailService.sendMail({ to: email, subject, html, text });
-  }
-
-  async verifyEmail(token: string) {
-    try {
-      const payload = await this.jwt.verifyAsync(token, {
-        secret: this.configService.get<string>('jwt.verificationTokenSecret') || 'dev-verification-secret',
-      });
-      await this.prisma.user.update({ where: { id: payload.userId }, data: { emailVerified: true } });
-      return { message: 'Email verificado com sucesso' };
-    } catch {
-      throw new UnauthorizedException('Invalid verification token');
-    }
-  }
-
-  async sendPasswordResetEmail(email: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user) throw new NotFoundException('Usuário não encontrado');
-    const token = await this.jwt.signAsync({ userId: user.id }, {
-      secret: this.configService.get<string>('jwt.passwordResetTokenSecret') || 'dev-reset-secret',
-      expiresIn: '1h',
-    });
-    const frontendUrl = this.configService.get<string>('app.frontendUrl');
-    const resetUrl = `${frontendUrl}/auth/reset-password?token=${token}`;
-    const { subject, html, text } = buildPasswordResetEmail(user.name ?? '', resetUrl);
-    await this.emailService.sendMail({ to: email, subject, html, text });
-    return { message: 'Email de recuperação enviado com sucesso' };
-  }
-
-  async resetPassword(token: string, newPassword: string) {
-    try {
-      const payload = await this.jwt.verifyAsync(token, {
-        secret: this.configService.get<string>('jwt.passwordResetTokenSecret') || 'dev-reset-secret',
-      });
-      const user = await this.prisma.user.findUnique({ where: { id: payload.userId } });
-      if (!user) throw new NotFoundException('Usuário não encontrado');
-      const passwordHash = await bcrypt.hash(newPassword, 10);
-      await this.prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
-
-      // Security alert: notify user that their password was changed
-      const frontendUrl = this.configService.get<string>('app.frontendUrl');
-      const { subject, html, text } = buildPasswordChangedEmail(user.name ?? '', frontendUrl ?? '');
-      this.emailService.sendMail({ to: user.email, subject, html, text }).catch((err) =>
-        this.logger.warn(`Falha ao enviar email de confirmação de password para ${user.email}: ${err.message}`),
-      );
-
-      return { message: 'Senha redefinida com sucesso' };
-    } catch {
-      throw new UnauthorizedException('Invalid password reset token');
     }
   }
 

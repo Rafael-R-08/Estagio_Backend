@@ -4,7 +4,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
-import { UserModule } from './user/user.module';
 import { AiModule } from './ai/ai.module';
 import { TrainingsModule } from './trainings/trainings.module';
 import { CertificatesModule } from './certificates/certificates.module';
@@ -21,6 +20,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+
 
 import { GlobalAuthGuard } from './common/guards/auth-global.guard';
 import { RolesGlobalGuard } from './common/guards/roles-global.guard';
@@ -53,7 +53,6 @@ import { BullModule } from '@nestjs/bullmq';
     CacheModule,
     PrismaModule,
     AuthModule,
-    UserModule,
     AiModule,
     TrainingsModule,
     CertificatesModule,

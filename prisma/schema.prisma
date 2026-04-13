@@ -314,6 +314,18 @@ enum NotificationType {
   CALENDAR_REMINDER
 }
 
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  adminId   String?
+  targetId  String?
+  details   String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
 model CalendarEvent {
   id                    String   @id @default(uuid())
   userId                String

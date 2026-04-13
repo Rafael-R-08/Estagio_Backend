@@ -91,7 +91,7 @@ export function buildRecommendationPrompt(
 Profile: ${profile.userFunction} at ${profile.serviceLine || 'Softinsa'}. Level: ${profile.experienceLevel}. Skills: ${skills}. Interests: ${interests}.
 Rule: NEVER recommend already completed/ongoing courses: [${exclude || 'none'}].
 Rule: ONLY recommend courses from the numbered catalogue below. Do NOT invent titles.
-Rule: Return up to 3 courses per category (improvement, interests, missing_skills), max 9 total.
+Rule: Return AT LEAST 1 course per category (improvement, interests, missing_skills) when suitable courses exist, up to 3 per category, max 9 total. Every category must be represented whenever the catalogue allows it.
 Rule: If NO suitable course exists in the catalogue, set hasContextualCourses=false and return an empty courses array.
 
 ### COURSE CATALOGUE:
@@ -105,7 +105,7 @@ ${schema}`.trim();
 Perfil: ${profile.userFunction} na área ${profile.serviceLine || 'Softinsa'}. Nível: ${profile.experienceLevel}. Skills: ${skills}. Interesses: ${interests}.
 Regra: NUNCA recomendar cursos já concluídos/em curso: [${exclude || 'nenhum'}].
 Regra: APENAS recomenda cursos do catálogo numerado abaixo. NÃO inventes títulos.
-Regra: Devolve até 3 cursos por categoria (improvement, interests, missing_skills), máx. 9 no total.
+Regra: Devolve PELO MENOS 1 curso por categoria (improvement, interests, missing_skills) sempre que existam cursos adequados, até 3 por categoria, máx. 9 no total. Cada categoria deve estar sempre representada quando o catálogo o permitir.
 Regra: Se NÃO existir nenhum curso adequado no catálogo, define hasContextualCourses=false e devolve courses=[].
 
 ### CATÁLOGO DE CURSOS:

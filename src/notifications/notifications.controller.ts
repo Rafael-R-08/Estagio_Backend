@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Patch,
   Param,
@@ -57,5 +58,22 @@ export class NotificationsController {
   })
   markAllAsRead(@CurrentUser() userId: string) {
     return this.notificationsService.markAllAsRead(userId);
+  }
+
+  @Delete()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Eliminar todas as notificações do utilizador' })
+  @ApiResponse({ status: 200, description: 'Todas as notificações eliminadas' })
+  deleteAll(@CurrentUser() userId: string) {
+    return this.notificationsService.deleteAll(userId);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Eliminar notificação por ID' })
+  @ApiResponse({ status: 204, description: 'Notificação eliminada' })
+  @ApiResponse({ status: 404, description: 'Notificação não encontrada' })
+  async deleteOne(@Param('id') id: string, @CurrentUser() userId: string) {
+    await this.notificationsService.deleteOne(id, userId);
   }
 }

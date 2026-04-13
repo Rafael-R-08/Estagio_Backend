@@ -1,8 +1,9 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AdminService } from './admin.service';
+import { AuditService } from './audit.service';
 import { UpdateAdminUserDto } from './dto/update-admin-user.dto';
 import { UpdateAdminPlatformDto } from './dto/update-admin-platform.dto';
 import { CreateAdminPlatformDto } from './dto/create-admin-platform.dto';
@@ -13,7 +14,10 @@ import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 @Controller('admin')
 @Roles('ADMIN')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly auditService: AuditService,
+  ) {}
 
   // ── Users ────────────────────────────────────────────────────────────────
 
@@ -95,5 +99,19 @@ export class AdminController {
   })
   updatePlatform(@Param('id') id: string, @Body() dto: UpdateAdminPlatformDto) {
     return this.adminService.updatePlatform(id, dto);
+  }
+
+  // ── Audit ─────────────────────────────────────────────────────────────
+
+  @Get('audit')
+  @ApiOperation({ summary: 'Listar logs de auditoria das ações admin' })
+  getAuditLogs(
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.auditService.findAll({
+      limit: limit ? parseInt(limit, 10) : 20,
+      offset: offset ? parseInt(offset, 10) : 0,
+    });
   }
 }

@@ -41,14 +41,28 @@ async function bootstrap() {
   // Servir ficheiros locais (fallback quando Azure não está configurado)
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads' });
 
-  app.use(helmet({ contentSecurityPolicy: false }));
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],   // Swagger UI requires inline scripts
+        styleSrc: ["'self'", "'unsafe-inline'"],    // Swagger UI requires inline styles
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: ["'self'"],
+      },
+    },
+  }));
   
   // Limites de payload para segurança
   const { json, urlencoded } = require('body-parser');
   app.use(json({ limit: '5mb' }));
   app.use(urlencoded({ limit: '5mb', extended: true }));
 
-  app.enableCors();
+  app.enableCors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:4200',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
   app.setGlobalPrefix('api');
 
   const config = new DocumentBuilder()

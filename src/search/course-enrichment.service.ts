@@ -47,4 +47,39 @@ export class CourseEnrichmentService {
       return courses;
     }
   }
+
+  /**
+   * Adiciona o estado do utilizador autenticado para cada curso (guardado, frequentado, realizado, etc.).
+   * Usa a URL como chave universal para cruzar com TrainingRecord.
+   */
+  async enrichWithUserStatus(courses: CourseResult[], userId: string): Promise<CourseResult[]> {
+    if (courses.length === 0 || !userId) return courses;
+
+    try {
+      const urls = courses.map(c => c.url);
+      const records = await this.prisma.trainingRecord.findMany({
+        where: { userId, url: { in: urls } },
+        select: { url: true, status: true },
+      });
+
+      // Em caso de múltiplos registos para o mesmo URL, prioridade: completed > ongoing > priority > later > accessed > cancelled
+      const priorityOrder = ['completed', 'ongoing', 'priority', 'later', 'accessed', 'cancelled'];
+      const statusMap = new Map<string, string>();
+      for (const r of records) {
+        const existing = statusMap.get(r.url);
+        if (!existing || priorityOrder.indexOf(r.status) < priorityOrder.indexOf(existing)) {
+          statusMap.set(r.url, r.status);
+        }
+      }
+
+      return courses.map(course => {
+        const status = statusMap.get(course.url);
+        if (!status) return course;
+        return { ...course, userStatus: status };
+      });
+    } catch (error) {
+      this.logger.error(`Erro ao enriquecer cursos com estado do utilizador: ${error.message}`);
+      return courses;
+    }
+  }
 }

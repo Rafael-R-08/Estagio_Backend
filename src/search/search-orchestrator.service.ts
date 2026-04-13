@@ -25,7 +25,7 @@ export class SearchOrchestratorService {
    * Orquestrador principal da pesquisa unificada.
    * Coordena adaptadores, cache DB, ranking semântico e enriquecimento.
    */
-  async unifiedSearch(queryDto: SearchQueryDto) {
+  async unifiedSearch(queryDto: SearchQueryDto, userId?: string) {
     const { q = '', limit = 10, page = 1, platforms, isFree, minRating, minInternalRating, minRelevance = 0, level, language } = queryDto;
     const isBrowseMode = !q || !q.trim();
 
@@ -86,10 +86,15 @@ export class SearchOrchestratorService {
     // 7. Enriquecimento com estatísticas internas (ratings Softinsa)
     const enriched = await this.enrichmentService.enrichWithInternalStats(ranked);
 
+    // 7b. Enriquecimento com estado do utilizador autenticado (guardado, frequentado, realizado)
+    const enrichedWithStatus = userId
+      ? await this.enrichmentService.enrichWithUserStatus(enriched, userId)
+      : enriched;
+
     // 8. Filtro por minInternalRating (rating médio interno dos utilizadores Softinsa)
     const internalFiltered = minInternalRating !== undefined
-      ? enriched.filter(r => r.internalRating !== undefined && r.internalRating >= minInternalRating)
-      : enriched;
+      ? enrichedWithStatus.filter(r => r.internalRating !== undefined && r.internalRating >= minInternalRating)
+      : enrichedWithStatus;
 
     // 9. Cálculo de Relevância Softinsa (0.0 - 1.0)
     const finalResults = isBrowseMode

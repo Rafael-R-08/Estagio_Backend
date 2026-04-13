@@ -168,11 +168,41 @@ export class CourseDbService {
     });
   }
 
-  async findGlobalByExternalId(externalId: string) {
-    return this.prisma.course.findFirst({
+  async findGlobalByExternalId(externalId: string, userId?: string) {
+    const course = await this.prisma.course.findFirst({
       where: { externalId },
       include: { platform: true }
     });
+
+    if (!course) return null;
+
+    // Map to CourseResult-compatible shape
+    const result: Record<string, unknown> = {
+      externalId: course.externalId,
+      title: course.title,
+      description: course.description || '',
+      url: course.url,
+      instructor: course.instructor || undefined,
+      rating: course.rating || undefined,
+      durationHours: course.durationHours || undefined,
+      level: course.level as any,
+      tags: course.tags,
+      isFree: course.isFree ?? undefined,
+      language: course.language || undefined,
+      platformId: course.platformId,
+      platformName: course.platform.name,
+    };
+
+    if (userId) {
+      const record = await this.prisma.trainingRecord.findFirst({
+        where: { userId, url: course.url },
+        select: { status: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (record) result['userStatus'] = record.status;
+    }
+
+    return result;
   }
 
   /**

@@ -33,8 +33,9 @@ export class SearchController {
 
   @Get('course/:externalId')
   @ApiOperation({ summary: 'Detalhe de um curso pelo externalId (da cache)' })
-  async getCourse(@Param('externalId') externalId: string) {
-    const course = await this.searchService.getCourseByExternalId(externalId);
+  async getCourse(@Param('externalId') externalId: string, @Req() req: AuthRequest) {
+    const userId = req.user?.userId;
+    const course = await this.searchService.getCourseByExternalId(externalId, userId);
     if (!course) throw new NotFoundException('Curso não encontrado na cache.');
     return course;
   }

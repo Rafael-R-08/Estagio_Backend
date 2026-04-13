@@ -44,6 +44,7 @@ export class RecommendationService {
     userId?: string,
     customQuery?: string,
     topK = CHUNKS_PER_QUERY,
+    forceRefresh = false,
   ): Promise<RecommendationOutput & { metadata: any }> {
     this.logger.log(`Recomendações para: ${userId || 'Anónimo'}`);
 
@@ -112,16 +113,21 @@ export class RecommendationService {
     const profileHash = this.hashProfile(profile, topK);
     const catalogFingerprint = await this.getCatalogFingerprint();
     const cacheKey = `ai:rec:v2:${userId}:${profileHash}:${catalogFingerprint}`;
-    const cached = await this.cacheService.get(cacheKey);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached) as RecommendationOutput & {
-          metadata: any;
-        };
-        this.logger.debug(`Cache hit para ${userId}`);
-        return { ...parsed, metadata: { ...parsed.metadata, fromCache: true } };
-      } catch {
-        // ignore corrupt cache
+    if (forceRefresh) {
+      await this.cacheService.del(cacheKey);
+      this.logger.debug(`Cache invalidado por refresh para ${userId}`);
+    } else {
+      const cached = await this.cacheService.get(cacheKey);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached) as RecommendationOutput & {
+            metadata: any;
+          };
+          this.logger.debug(`Cache hit para ${userId}`);
+          return { ...parsed, metadata: { ...parsed.metadata, fromCache: true } };
+        } catch {
+          // ignore corrupt cache
+        }
       }
     }
 
@@ -136,12 +142,24 @@ export class RecommendationService {
       `${user.userFunction || ''} ${user.serviceLine || ''}`.trim() ||
       'tecnologia';
 
+    // Adapt improvement query to user level — avoid 'advanced' bias for junior profiles
+    const levelLabel =
+      profile.experienceLevel === 'junior'
+        ? lang === 'en'
+          ? 'foundation courses career path'
+          : 'cursos base progressão carreira'
+        : profile.experienceLevel === 'intermedio'
+          ? lang === 'en'
+            ? 'intermediate career growth courses'
+            : 'cursos intermédios crescimento carreira'
+          : lang === 'en'
+            ? 'advanced career improvement courses'
+            : 'cursos avançados melhoria carreira';
+
     const queries = customQuery
       ? [customQuery, customQuery, customQuery]
       : [
-          lang === 'en'
-            ? `career improvement advanced courses ${roleStr}`
-            : `cursos avançados melhoria carreira ${roleStr}`,
+          `${levelLabel} ${roleStr}`,
           lang === 'en'
             ? `courses about ${interestsStr}`
             : `cursos sobre ${interestsStr}`,

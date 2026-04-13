@@ -21,6 +21,10 @@ export interface CourseResult {
   internalRating?: number;
   /** Relevância interna da Softinsa (média de colaboradores) */
   internalRelevance?: number;
+  /** Número de vezes concluído na Softinsa */
+  completedCount?: number;
+  /** Estado do curso para o utilizador autenticado (ongoing, completed, priority, later, accessed, cancelled) */
+  userStatus?: string;
 }
 
 export interface PlatformConfig {

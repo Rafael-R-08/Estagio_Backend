@@ -14,6 +14,7 @@ import { buildNewMemberEmail } from '../notifications/templates/email-templates'
 import { UpdateAdminUserDto } from './dto/update-admin-user.dto';
 import { UpdateAdminPlatformDto } from './dto/update-admin-platform.dto';
 import { CreateAdminPlatformDto } from './dto/create-admin-platform.dto';
+import { AuditService } from './audit.service';
 
 @Injectable()
 export class AdminService {
@@ -24,6 +25,7 @@ export class AdminService {
     private notificationsService: NotificationsService,
     private emailService: EmailService,
     private config: ConfigService,
+    private auditService: AuditService,
   ) {}
 
   async getUsers() {
@@ -106,6 +108,30 @@ export class AdminService {
       this.notifyServiceLineManager(updatedUser as { id: string; name: string | null; email: string }, dto.serviceLine).catch((err) =>
         this.logger.warn(`Falha ao notificar gestor de linha: ${err.message}`),
       );
+    }
+
+    // Audit log
+    if (dto.role !== undefined) {
+      void this.auditService.log({
+        action: 'ROLE_UPDATED',
+        adminId: requesterId,
+        targetId: id,
+        details: `${currentUser.role} → ${dto.role}`,
+      });
+    } else if (dto.isActive === false) {
+      void this.auditService.log({
+        action: 'USER_DEACTIVATED',
+        adminId: requesterId,
+        targetId: id,
+        details: currentUser.email,
+      });
+    } else if (dto.isActive === true) {
+      void this.auditService.log({
+        action: 'USER_ACTIVATED',
+        adminId: requesterId,
+        targetId: id,
+        details: currentUser.email,
+      });
     }
 
     // Strip the internal serviceLine field before returning to match original select shape
@@ -422,6 +448,11 @@ export class AdminService {
       },
     });
 
+    void this.auditService.log({
+      action: 'PLATFORM_CREATED',
+      details: created.name,
+    });
+
     return {
       id: created.id,
       name: created.name,
@@ -448,6 +479,12 @@ export class AdminService {
     const updated = await this.prisma.learningPlatform.update({
       where: { id },
       data,
+    });
+
+    void this.auditService.log({
+      action: 'PLATFORM_UPDATED',
+      targetId: id,
+      details: updated.name,
     });
 
     return {

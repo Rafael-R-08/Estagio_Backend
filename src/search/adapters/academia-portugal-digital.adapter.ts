@@ -7,14 +7,15 @@ import { CacheService } from '../../cache/cache.service';
 import type { CourseResult } from '../interfaces/platform-adapter.interface';
 
 const BASE_URL = 'https://academiaportugaldigital.pt';
-const COURSES_URL = `${BASE_URL}/cursos`;
+/**
+ * A página /cursos carrega os cursos via AJAX para /cursos-pesquisa.
+ * Usamos diretamente o endpoint AJAX para obter o HTML dos cards.
+ */
+const COURSES_AJAX_URL = `${BASE_URL}/cursos-pesquisa`;
 
 /** Cache do catálogo: 12 horas */
 const CATALOG_CACHE_TTL = 43200;
-const ACADEMIA_CATALOG_CACHE_KEY = 'academia_pt:catalog:v2';
-
-/** Número máximo de páginas a percorrer (evita loops infinitos) */
-const MAX_PAGES = 10;
+const ACADEMIA_CATALOG_CACHE_KEY = 'academia_pt:catalog:v3';
 
 const LEVEL_MAP: Record<string, CourseResult['level']> = {
   iniciado: 'beginner',
@@ -30,6 +31,9 @@ const REQUEST_HEADERS = {
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   Accept: 'text/html,application/xhtml+xml',
   'Accept-Language': 'pt-PT,pt;q=0.9,en;q=0.8',
+  /** Necessário para que o servidor retorne o fragmento HTML dos cursos */
+  'X-Requested-With': 'XMLHttpRequest',
+  Referer: `${BASE_URL}/cursos`,
 };
 
 @Injectable()
@@ -79,7 +83,11 @@ export class AcademiaPortugalDigitalAdapter extends BasePlatformAdapter {
     );
   }
 
-  /** Obtém todos os cursos percorrendo paginação automática (cache 12h). Se forceRefresh=true, ignora cache. */
+  /**
+   * Obtém todos os cursos via endpoint AJAX /cursos-pesquisa (cache 12h).
+   * A página /cursos carrega os cursos dinamicamente a partir deste endpoint.
+   * Se forceRefresh=true, ignora cache.
+   */
   async getAllCourses(forceRefresh = false): Promise<CourseResult[]> {
     if (!forceRefresh) {
       const cached = await this.cache.get(ACADEMIA_CATALOG_CACHE_KEY);
@@ -92,196 +100,134 @@ export class AcademiaPortugalDigitalAdapter extends BasePlatformAdapter {
       }
     }
 
-    const allResults: CourseResult[] = [];
-    const seen = new Set<string>();
-    let page = 0;
-    let hasMore = true;
-
-    while (hasMore && page < MAX_PAGES) {
-      const url = page === 0 ? COURSES_URL : `${COURSES_URL}?page=${page}`;
-      try {
-        const response = await firstValueFrom(
-          this.http
-            .get<string>(url, {
-              headers: REQUEST_HEADERS,
-              responseType: 'text',
-            })
-            .pipe(timeout(20_000)),
-        );
-
-        const html = response.data;
-        const pageResults = this.parseHtml(html, seen);
-        allResults.push(...pageResults);
-
-        // Detetar se existe próxima página
-        hasMore = this.hasNextPage(html, page);
-        page++;
-
-        if (pageResults.length === 0) {
-          // Página vazia — parar mesmo que exista link de paginação
-          hasMore = false;
-        }
-
-        this.logger.debug(
-          `[Academia PT Digital] Página ${page}: ${pageResults.length} cursos (total: ${allResults.length})`,
-        );
-      } catch (error: unknown) {
-        this.logger.error(
-          `[Academia PT Digital] Erro na página ${page}: ${String(error)}`,
-        );
-        hasMore = false;
-      }
-    }
-
-    if (allResults.length > 0) {
-      await this.cache.set(
-        ACADEMIA_CATALOG_CACHE_KEY,
-        JSON.stringify(allResults),
-        CATALOG_CACHE_TTL,
+    const ajaxUrl = this.platform.apiEndpoint || COURSES_AJAX_URL;
+    try {
+      const response = await firstValueFrom(
+        this.http
+          .get<string>(ajaxUrl, {
+            params: {
+              textSearch: '',
+              areaId: '',
+              competenceLevelId: '',
+              duration: '',
+              language: '',
+              partner: '',
+              isRecommended: '',
+            },
+            headers: REQUEST_HEADERS,
+            responseType: 'text',
+          })
+          .pipe(timeout(20_000)),
       );
-      this.logger.log(
-        `[Academia PT Digital] Catálogo carregado: ${allResults.length} cursos em ${page} páginas (cache 12h).`,
-      );
-    }
 
-    return allResults;
-  }
+      const seen = new Set<string>();
+      const results = this.parseHtml(response.data as string, seen);
 
-  /**
-   * Verifica se existe uma próxima página de resultados.
-   * Suporta múltiplos padrões de paginação: Drupal Views, rel="next", botões "Próximo".
-   */
-  private hasNextPage(html: string, currentPage: number): boolean {
-    const $ = cheerio.load(html);
-
-    // 1. Link rel="next" (padrão HTML semântico)
-    if ($('link[rel="next"], a[rel="next"]').length > 0) return true;
-
-    // 2. Paginador Drupal Views: .pager-next ou li.next
-    if ($('.pager__item--next, .pager-next, li.next a, a.page-next').length > 0)
-      return true;
-
-    // 3. Link "?page=" para a próxima página
-    const nextPageNum = currentPage + 1;
-    if (
-      $(`a[href*="page=${nextPageNum}"], a[href*="?page=${nextPageNum}"]`)
-        .length > 0
-    )
-      return true;
-
-    // 4. Botão "Seguinte" / "Próximo" / "Next" em texto
-    let found = false;
-    $('a, button').each((_, el) => {
-      const text = $(el).text().trim().toLowerCase();
-      if (/^(next|próxim|seguinte|>|›)/.test(text)) {
-        found = true;
-        return false; // break
+      if (results.length > 0) {
+        await this.cache.set(
+          ACADEMIA_CATALOG_CACHE_KEY,
+          JSON.stringify(results),
+          CATALOG_CACHE_TTL,
+        );
+        this.logger.log(
+          `[Academia PT Digital] Catálogo carregado: ${results.length} cursos (cache 12h).`,
+        );
+      } else {
+        this.logger.warn('[Academia PT Digital] Nenhum curso encontrado no endpoint AJAX.');
       }
-    });
-    return found;
+      return results;
+    } catch (error: unknown) {
+      this.logger.error(
+        `[Academia PT Digital] Erro ao obter cursos: ${String(error)}`,
+      );
+      return [];
+    }
   }
 
   private parseHtml(html: string, seen: Set<string>): CourseResult[] {
     const $ = cheerio.load(html);
     const results: CourseResult[] = [];
 
-    // Seletores multi-fallback para resiliência a redesigns
-    const cardSelectors = [
-      '.views-row',
-      '.course-card',
-      '.field-content article',
-      'article',
-      '.card',
-      '[class*="course"]',
-    ];
+    // Layout atual (2025+): cada curso tem classe .course-item dentro de .row
+    // Estrutura do card:
+    //   <div class="col-12 col-md-6 course-item card-col-h-equal">
+    //     <div class="card card-stats card-shadow">
+    //       <div class="card-body">
+    //         <p class="mt-3">{título}</p>
+    //         <p class="mt-3 font-weight-300">{descrição}</p>
+    //         <p class="mt-3 mb-0 font-weight-300"><span>Iniciado</span> | <span>2h 0m</span> | <span>Português</span></p>
+    //         <button onclick="location.href='/Course/CursoDetalhe/{id}'">Saber mais</button>
+    //       </div>
+    //     </div>
+    //   </div>
+    $('.course-item').each((_, el) => {
+      const card = $(el);
+      const body = card.find('.card-body');
 
-    for (const cardSelector of cardSelectors) {
-      const cards = $(cardSelector);
-      if (cards.length < 2) continue;
-
-      cards.each((_, el) => {
-        const card = $(el);
-
-        // Tentar encontrar título via seletores em cascata
-        const titleEl = card
-          .find('h2, h3, h4, .title, a[href*="/formacao/"], a[href*="/curso/"]')
-          .first();
-        const title = titleEl.text().trim();
-        if (!title || seen.has(title)) return;
-
-        // Tentar encontrar URL do curso
-        const link =
-          titleEl.attr('href') ??
-          card.find('a[href*="/formacao/"], a[href*="/curso/"]').attr('href') ??
-          card.find('a').first().attr('href') ??
-          '';
-        if (!link) return;
-
-        const url = link.startsWith('http') ? link : `${BASE_URL}${link}`;
-
-        // Validação básica: URL deve ser do domínio da academia
-        if (!url.startsWith(BASE_URL) && !url.startsWith('http')) return;
-
-        const description = card
-          .find('.description, .summary, .field--name-body, p')
-          .first()
-          .text()
-          .trim();
-
-        // Metadata: "Iniciado | 3h 0m | Português" ou variações
-        const metaText = card.text();
-        const metaMatch = metaText.match(
-          /(Iniciado|Intermédio|Avançado)\s*[|·]\s*(\d+)h\s*(\d+)m?\s*[|·]?\s*(\w+)?/i,
-        );
-
-        let level: CourseResult['level'] = undefined;
-        let durationHours: number | undefined = undefined;
-
-        if (metaMatch) {
-          level = LEVEL_MAP[metaMatch[1].toLowerCase()];
-          const h = parseInt(metaMatch[2], 10);
-          const m = parseInt(metaMatch[3] ?? '0', 10);
-          durationHours = h + m / 60;
-        } else {
-          // Fallback: detetar nível e duração separadamente
-          const levelMatch = metaText.match(
-            /\b(Iniciado|Intermédio|Avançado)\b/i,
-          );
-          if (levelMatch) level = LEVEL_MAP[levelMatch[1].toLowerCase()];
-
-          const durMatch = metaText.match(/(\d+)h\s*(\d+)?m?/i);
-          if (durMatch) {
-            durationHours =
-              parseInt(durMatch[1], 10) + parseInt(durMatch[2] ?? '0', 10) / 60;
-          }
-        }
-
-        const titleSlug = title
-          .toLowerCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, '');
-
-        seen.add(title);
-        results.push({
-          externalId: `academiapt:${titleSlug.slice(0, 60)}`,
-          title,
-          description: description.slice(0, 400),
-          url,
-          level,
-          durationHours: durationHours
-            ? parseFloat(durationHours.toFixed(2))
-            : undefined,
-          isFree: true,
-          tags: [],
-          platformId: this.platform.id,
-          platformName: this.platformName,
-        });
+      // Extrair título: primeiro <p class="mt-3"> sem font-weight-300
+      const paragraphs = body.find('p.mt-3');
+      let title = '';
+      let description = '';
+      paragraphs.each((i, p) => {
+        const text = $(p).text().trim();
+        if (!text) return;
+        if (i === 0) title = text;
+        else if (i === 1 && !$(p).hasClass('mb-0')) description = text;
       });
 
-      if (results.length > 0) break;
-    }
+      if (!title || seen.has(title)) return;
+
+      // Extrair URL via onclick do botão "Saber mais"
+      let coursePath = '';
+      body.find('button[onclick]').each((_, btn) => {
+        const onclick = $(btn).attr('onclick') ?? '';
+        const m = onclick.match(/location\.href='([^']+)'/);
+        if (m) { coursePath = m[1]; return false; }
+      });
+      if (!coursePath) return;
+
+      const url = `${BASE_URL}${coursePath}`;
+
+      // Extrair metadata: "Iniciado | 2h 0m | Português"
+      const metaEl = body.find('p.mt-3.mb-0');
+      const metaText = metaEl.text();
+      const metaMatch = metaText.match(
+        /(Iniciado|Intermédio|Avançado)\s*[|·]\s*(\d+)h\s*(\d+)m?\s*[|·]?\s*(\w+)?/i,
+      );
+
+      let level: CourseResult['level'] = undefined;
+      let durationHours: number | undefined = undefined;
+
+      if (metaMatch) {
+        level = LEVEL_MAP[metaMatch[1].toLowerCase()];
+        const h = parseInt(metaMatch[2], 10);
+        const m = parseInt(metaMatch[3] ?? '0', 10);
+        durationHours = h + m / 60;
+      }
+
+      const titleSlug = title
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+
+      seen.add(title);
+      results.push({
+        externalId: `academiapt:${titleSlug.slice(0, 60)}`,
+        title,
+        description: description.slice(0, 400),
+        url,
+        level,
+        durationHours: durationHours
+          ? parseFloat(durationHours.toFixed(2))
+          : undefined,
+        isFree: true,
+        tags: [],
+        platformId: this.platform.id,
+        platformName: this.platformName,
+      });
+    });
 
     return results;
   }

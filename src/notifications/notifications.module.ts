@@ -13,9 +13,10 @@ import { OnboardingReminderScheduler } from './schedulers/onboarding-reminder.sc
 import { CalendarReminderScheduler } from './schedulers/calendar-reminder.scheduler';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AiModule } from '../ai/ai.module';
+import { PushModule } from '../push/push.module';
 
 @Module({
-  imports: [PrismaModule, AiModule],
+  imports: [PrismaModule, AiModule, PushModule],
   controllers: [NotificationsController],
   providers: [
     NotificationsService,

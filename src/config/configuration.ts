@@ -14,7 +14,8 @@ export default () => ({
     verificationTokenSecret: process.env.JWT_VERIFICATION_TOKEN_SECRET,
     verificationTokenExpiresIn: process.env.JWT_VERIFICATION_TOKEN_EXPIRES_IN,
     passwordResetTokenSecret: process.env.JWT_PASSWORD_RESET_TOKEN_SECRET,
-    passwordResetTokenExpiresIn: process.env.JWT_PASSWORD_RESET_TOKEN_EXPIRES_IN,
+    passwordResetTokenExpiresIn:
+      process.env.JWT_PASSWORD_RESET_TOKEN_EXPIRES_IN,
   },
 
   redis: {
@@ -49,5 +50,15 @@ export default () => ({
   app: {
     url: process.env.APP_URL || 'http://localhost:3000',
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:4200',
+  },
+
+  platforms: {
+    encryptionKey: process.env.PLATFORM_ENCRYPTION_KEY || '',
+  },
+
+  webPush: {
+    vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
+    vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '',
+    vapidEmail: process.env.VAPID_EMAIL || 'mailto:admin@learninghub.pt',
   },
 });

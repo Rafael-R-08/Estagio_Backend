@@ -5,11 +5,6 @@ export class UpdateAdminPlatformDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
-  name?: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
   type?: string;
 
   @ApiProperty({ required: false, description: 'URL base da API' })

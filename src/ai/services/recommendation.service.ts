@@ -177,12 +177,14 @@ export class RecommendationService {
       this.embeddingService.searchSimilar(queries[2], topK, source),
     ]);
 
-    // 7. Filtragem por similaridade + deduplicação por sourceId
-    const allChunks = this.deduplicateChunks([
-      ...improvementChunks,
-      ...interestChunks,
-      ...skillChunks,
-    ]);
+    // 7. Filtragem por similaridade + deduplicação por sourceId + título
+    const allChunks = this.deduplicateByTitle(
+      this.deduplicateChunks([
+        ...improvementChunks,
+        ...interestChunks,
+        ...skillChunks,
+      ]),
+    );
 
     // #9 — Fallback progressivo: relaxar threshold se cursos relevantes insuficientes
     let relevant = allChunks.filter(
@@ -314,6 +316,35 @@ export class RecommendationService {
       }
     }
     return [...seen.values()].sort((a, b) => b.similarity - a.similarity);
+  }
+
+  /**
+   * Remove cursos com títulos normalizados idênticos ou muito semelhantes do catálogo
+   * (ex: "Guided Project: Deploy X" e "Deploy X" — mesmo tópico, título ligeiramente diferente).
+   */
+  private deduplicateByTitle(chunks: SearchResult[]): SearchResult[] {
+    const normalise = (title: string) =>
+      title
+        .toLowerCase()
+        .replace(/^(guided project|lab|module|introducti?on to|intro to)[:\s]*/i, '')
+        .replace(/[^a-z0-9 ]/g, '')
+        .trim();
+
+    const seenTitles = new Map<string, SearchResult>();
+    for (const chunk of chunks) {
+      const meta = chunk.metadata as Record<string, unknown> | null | undefined;
+      const rawTitle =
+        (meta?.['title'] as string | undefined) ??
+        this.extractTitleFromContent(chunk.content) ??
+        '';
+      const key = normalise(rawTitle);
+      if (!key) continue;
+      const existing = seenTitles.get(key);
+      if (!existing || chunk.similarity > existing.similarity) {
+        seenTitles.set(key, chunk);
+      }
+    }
+    return [...seenTitles.values()].sort((a, b) => b.similarity - a.similarity);
   }
 
   /**

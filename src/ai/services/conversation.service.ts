@@ -12,7 +12,7 @@ export class ConversationService {
   /**
    * Cria ou obtém uma conversa existente.
    */
-  async getOrCreateConversation(userId: string, conversationId?: string): Promise<Conversation> {
+  async getOrCreateConversation(userId: string, conversationId?: string, initialPrompt?: string): Promise<Conversation> {
     if (conversationId) {
       const existing = await this.prisma.conversation.findUnique({
         where: { id: conversationId },
@@ -20,10 +20,14 @@ export class ConversationService {
       if (existing && existing.userId === userId) return existing;
     }
 
+    const title = initialPrompt
+      ? initialPrompt.trim().slice(0, 80)
+      : 'Nova Conversa';
+
     return this.prisma.conversation.create({
       data: {
         userId,
-        title: 'Nova Conversa',
+        title,
       },
     });
   }

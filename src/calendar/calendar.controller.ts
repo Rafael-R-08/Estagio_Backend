@@ -6,9 +6,16 @@ import {
   Delete,
   Body,
   Param,
+  Res,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiOkResponse,
+} from '@nestjs/swagger';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CalendarService } from './calendar.service';
@@ -32,6 +39,26 @@ export class CalendarController {
   @ApiOperation({ summary: 'Listar os eventos do utilizador' })
   findAll(@CurrentUser() userId: string) {
     return this.calendarService.findAll(userId);
+  }
+
+  @Get('export.ics')
+  @ApiOperation({
+    summary: 'Exportar eventos como ficheiro .ics (iCalendar)',
+    description:
+      'Compatível com Google Calendar, Outlook, Apple Calendar sem necessidade de OAuth.',
+  })
+  @ApiOkResponse({
+    description: 'Ficheiro .ics',
+    content: { 'text/calendar': {} },
+  })
+  async exportIcs(@CurrentUser() userId: string, @Res() res: Response) {
+    const ics = await this.calendarService.exportIcs(userId);
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="learninghub-calendar.ics"',
+    );
+    res.send(ics);
   }
 
   @Get(':id')

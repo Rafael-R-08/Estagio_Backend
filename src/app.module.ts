@@ -16,6 +16,9 @@ import { RecommendationsModule } from './recommendations/recommendations.module'
 import { AnalysisModule } from './analysis/analysis.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CalendarModule } from './calendar/calendar.module';
+import { CollectionsModule } from './collections/collections.module';
+import { PushModule } from './push/push.module';
+import { ReportsModule } from './reports/reports.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 import { AppController } from './app.controller';
@@ -64,6 +67,9 @@ import { BullModule } from '@nestjs/bullmq';
     AnalysisModule,
     NotificationsModule,
     CalendarModule,
+    CollectionsModule,
+    PushModule,
+    ReportsModule,
   ],
 
   controllers: [AppController],

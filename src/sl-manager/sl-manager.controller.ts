@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiForbiddenResponse,
@@ -6,6 +6,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -88,5 +89,21 @@ export class SlManagerController {
   @ApiForbiddenResponse({ description: 'Utilizador não pertence à sua service line' })
   async getUserProgress(@Param('id') id: string, @CurrentUser() managerId: string) {
     return this.slManagerService.getUserDetail(managerId, id);
+  }
+
+  // ── Activity feed ─────────────────────────────────────────────────────────
+
+  @Get('activity')
+  @ApiOperation({ summary: 'Feed de atividade cronológica da service line' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Máximo de eventos (default: 30)' })
+  @ApiOkResponse({
+    description: 'Lista de eventos: enrolled, completed, certificate ordenados por data',
+  })
+  @ApiForbiddenResponse({ description: 'Acesso restrito a SERVICE_LINE_MANAGER' })
+  getActivityFeed(
+    @CurrentUser() managerId: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.slManagerService.getActivityFeed(managerId, limit ? parseInt(limit, 10) : 30);
   }
 }

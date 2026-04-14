@@ -15,6 +15,7 @@ import { UpdateAdminUserDto } from './dto/update-admin-user.dto';
 import { UpdateAdminPlatformDto } from './dto/update-admin-platform.dto';
 import { CreateAdminPlatformDto } from './dto/create-admin-platform.dto';
 import { AuditService } from './audit.service';
+import { encryptApiKey, isEncrypted } from '../common/platform-crypto.util';
 
 @Injectable()
 export class AdminService {
@@ -438,10 +439,16 @@ export class AdminService {
     });
     if (existing) throw new BadRequestException(`Plataforma '${dto.name}' já existe`);
 
-    const { config, enabled, searchEnabled, ...rest } = dto;
+    const { config, enabled, searchEnabled, apiKey, ...rest } = dto;
+    const encKey = this.config.get<string>('platforms.encryptionKey') ?? '';
+    const encryptedApiKey = apiKey && encKey
+      ? encryptApiKey(apiKey, encKey)
+      : apiKey;
+
     const created = await this.prisma.learningPlatform.create({
       data: {
         ...rest,
+        apiKey: encryptedApiKey,
         enabled: enabled ?? true,
         searchEnabled: searchEnabled ?? true,
         config: config ? JSON.parse(config) : {},
@@ -470,11 +477,17 @@ export class AdminService {
     });
     if (!platform) throw new NotFoundException('Plataforma não encontrada');
 
-    const { isActive, isSearchEnabled, config, ...rest } = dto;
+    const { isActive, isSearchEnabled, config, apiKey, ...rest } = dto;
     const data: Record<string, unknown> = { ...rest };
     if (isActive !== undefined) data.enabled = isActive;
     if (isSearchEnabled !== undefined) data.searchEnabled = isSearchEnabled;
     if (config !== undefined) data.config = JSON.parse(config);
+    if (apiKey !== undefined) {
+      const encKey = this.config.get<string>('platforms.encryptionKey') ?? '';
+      data.apiKey = encKey && !isEncrypted(apiKey)
+        ? encryptApiKey(apiKey, encKey)
+        : apiKey;
+    }
 
     const updated = await this.prisma.learningPlatform.update({
       where: { id },

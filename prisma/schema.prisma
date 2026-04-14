@@ -22,14 +22,16 @@ model User {
   onboardingDone  Boolean          @default(false)
   serviceLine     ServiceLine?
   userFunction    String?
-  certificates    Certificate[]
-  refreshTokens   RefreshToken[]
-  trainings       TrainingRecord[]
-  settings        UserSettings?
-  skills          UserSkill[]
-  conversations   Conversation[]
-  notifications   Notification[]
-  calendarEvents  CalendarEvent[]
+  certificates      Certificate[]
+  refreshTokens     RefreshToken[]
+  trainings         TrainingRecord[]
+  settings          UserSettings?
+  skills            UserSkill[]
+  conversations     Conversation[]
+  notifications     Notification[]
+  calendarEvents    CalendarEvent[]
+  collections       Collection[]
+  pushSubscriptions PushSubscription[]
 }
 
 model LearningPlatform {
@@ -344,4 +346,43 @@ model CalendarEvent {
   @@index([userId])
   @@index([eventDate])
   @@index([reminderFireAt, finalReminderNotified])
+}
+
+model Collection {
+  id          String             @id @default(uuid())
+  userId      String
+  name        String
+  description String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  courses     CollectionCourse[]
+
+  @@index([userId])
+}
+
+model CollectionCourse {
+  id           String     @id @default(uuid())
+  collectionId String
+  externalId   String
+  title        String
+  url          String
+  platformId   String?
+  addedAt      DateTime   @default(now())
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, externalId])
+  @@index([collectionId])
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

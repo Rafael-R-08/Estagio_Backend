@@ -31,6 +31,7 @@ export interface PlatformConfig {
   id: string;
   name: string;
   apiEndpoint?: string | null;
+  apiKey?: string | null;
   config: Record<string, any>;
 }
 

@@ -52,7 +52,7 @@ export class RagService {
 
     // 1. Gerir Sessão apenas se houver User autenticado
     if (userId) {
-      const conversation = await this.conversationService.getOrCreateConversation(userId, options.conversationId);
+      const conversation = await this.conversationService.getOrCreateConversation(userId, options.conversationId, question);
       conversationId = conversation.id;
       history = await this.conversationService.getContextMessages(conversationId);
       await this.conversationService.addMessage(conversationId, 'user', question);
@@ -121,7 +121,7 @@ export class RagService {
     let history: ChatMessage[] = [];
 
     if (userId) {
-      const conversation = await this.conversationService.getOrCreateConversation(userId, options.conversationId);
+      const conversation = await this.conversationService.getOrCreateConversation(userId, options.conversationId, question);
       conversationId = conversation.id;
       history = await this.conversationService.getContextMessages(conversationId);
       await this.conversationService.addMessage(conversationId, 'user', question);
@@ -229,8 +229,16 @@ export class RagService {
         include: { skills: true }
       });
       if (user) {
-        const skills = user.skills?.map(s => `${s.skillName}(${s.level})`).join(', ');
-        context += `${isEn ? 'USER PROFILE' : 'PERFIL'}: Role: ${user.userFunction}, Skills: ${skills}\n---\n`;
+        const skills = user.skills?.map(s => `${s.skillName}(${s.level})`).join(', ') || 'N/A';
+        const interests = user.interests?.length ? user.interests.join(', ') : 'N/A';
+        const profileLines = [
+          `Role: ${user.userFunction || 'N/A'}`,
+          `Experience level: ${user.experienceLevel || 'N/A'}`,
+          `Service line: ${user.serviceLine || 'N/A'}`,
+          `Skills (name/level): ${skills}`,
+          `Interests: ${interests}`,
+        ];
+        context += `${isEn ? 'USER PROFILE' : 'PERFIL DO UTILIZADOR'}:\n${profileLines.join('\n')}\n---\n`;
       }
     }
 

@@ -439,4 +439,90 @@ export class SlManagerService {
       userId,
     );
   }
+
+  // ── Activity feed ────────────────────────────────────────────────────────
+
+  async getActivityFeed(managerId: string, limit = 30) {
+    const lineId = await this.getManagerLineId(managerId);
+
+    const members = await this.prisma.user.findMany({
+      where: { serviceLine: lineId },
+      select: { id: true, name: true, email: true },
+    });
+    const memberIds = members.map((m) => m.id);
+    const memberMap = new Map(members.map((m) => [m.id, m.name ?? m.email]));
+
+    const [trainings, certificates] = await Promise.all([
+      this.prisma.trainingRecord.findMany({
+        where: {
+          userId: { in: memberIds },
+          status: { in: ['completed', 'ongoing'] },
+        },
+        select: {
+          userId: true,
+          title: true,
+          status: true,
+          completedAt: true,
+          createdAt: true,
+        },
+        orderBy: [{ completedAt: 'desc' }, { createdAt: 'desc' }],
+        take: limit * 2,
+      }),
+      this.prisma.certificate.findMany({
+        where: { userId: { in: memberIds }, status: 'COMPLETED' },
+        select: {
+          userId: true,
+          courseName: true,
+          completionDate: true,
+          createdAt: true,
+          training: { select: { title: true } },
+        },
+        orderBy: [{ completionDate: 'desc' }, { createdAt: 'desc' }],
+        take: limit,
+      }),
+    ]);
+
+    type ActivityEvent = {
+      userId: string;
+      userName: string;
+      action: 'completed' | 'enrolled' | 'certificate';
+      courseTitle: string;
+      date: string;
+    };
+
+    const events: ActivityEvent[] = [];
+
+    for (const t of trainings) {
+      if (t.status === 'completed') {
+        events.push({
+          userId: t.userId,
+          userName: memberMap.get(t.userId) ?? t.userId,
+          action: 'completed',
+          courseTitle: t.title,
+          date: (t.completedAt ?? t.createdAt).toISOString(),
+        });
+      } else {
+        events.push({
+          userId: t.userId,
+          userName: memberMap.get(t.userId) ?? t.userId,
+          action: 'enrolled',
+          courseTitle: t.title,
+          date: t.createdAt.toISOString(),
+        });
+      }
+    }
+
+    for (const c of certificates) {
+      events.push({
+        userId: c.userId,
+        userName: memberMap.get(c.userId) ?? c.userId,
+        action: 'certificate',
+        courseTitle: c.courseName ?? c.training?.title ?? 'Certificado',
+        date: (c.completionDate ?? c.createdAt).toISOString(),
+      });
+    }
+
+    events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return events.slice(0, limit);
+  }
 }

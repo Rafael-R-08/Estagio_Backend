@@ -101,4 +101,57 @@ export class CalendarService {
     await this.prisma.calendarEvent.delete({ where: { id } });
     return { message: 'Evento eliminado com sucesso' };
   }
+
+  async exportIcs(userId: string): Promise<string> {
+    const events = await this.prisma.calendarEvent.findMany({
+      where: { userId },
+      orderBy: { eventDate: 'asc' },
+    });
+
+    const formatIcsDate = (date: Date): string =>
+      date
+        .toISOString()
+        .replace(/[-:]/g, '')
+        .replace(/\.\d{3}/, '');
+
+    const escapeIcs = (value: string): string =>
+      value
+        .replace(/\\/g, '\\\\')
+        .replace(/;/g, '\\;')
+        .replace(/,/g, '\\,')
+        .replace(/\n/g, '\\n');
+
+    const lines: string[] = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//LearningHub//LearningHub//PT',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+    ];
+
+    for (const event of events) {
+      const dtStart = formatIcsDate(event.eventDate);
+      const dtStamp = formatIcsDate(event.createdAt);
+      lines.push('BEGIN:VEVENT');
+      lines.push(`UID:${event.id}@learninghub`);
+      lines.push(`DTSTAMP:${dtStamp}`);
+      lines.push(`DTSTART:${dtStart}`);
+      lines.push(`DTEND:${dtStart}`);
+      lines.push(`SUMMARY:${escapeIcs(event.title)}`);
+      if (event.description) {
+        lines.push(`DESCRIPTION:${escapeIcs(event.description)}`);
+      }
+      if (event.reminderMinutesBefore > 0) {
+        lines.push('BEGIN:VALARM');
+        lines.push('ACTION:DISPLAY');
+        lines.push(`DESCRIPTION:${escapeIcs(event.title)}`);
+        lines.push(`TRIGGER:-PT${event.reminderMinutesBefore}M`);
+        lines.push('END:VALARM');
+      }
+      lines.push('END:VEVENT');
+    }
+
+    lines.push('END:VCALENDAR');
+    return lines.join('\r\n');
+  }
 }

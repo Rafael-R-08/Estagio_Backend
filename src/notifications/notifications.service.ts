@@ -3,15 +3,19 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 import { QueryNotificationsDto } from './dto/query-notifications.dto';
 import { Notification, Prisma } from '@prisma/client';
+import { PushService } from '../push/push.service';
 
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pushService: PushService,
+  ) {}
 
   async create(dto: CreateNotificationDto): Promise<Notification> {
-    return await this.prisma.notification.create({
+    const notification = await this.prisma.notification.create({
       data: {
         userId: dto.userId,
         type: dto.type,
@@ -20,6 +24,13 @@ export class NotificationsService {
         metadata: (dto.metadata as Prisma.InputJsonValue) ?? Prisma.JsonNull,
       },
     });
+
+    // Fire-and-forget web push
+    this.pushService
+      .sendToUser(dto.userId, { title: dto.title, body: dto.body })
+      .catch((err) => this.logger.warn(`Web push failed: ${err?.message}`));
+
+    return notification;
   }
 
   async findForUser(

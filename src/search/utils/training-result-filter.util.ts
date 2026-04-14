@@ -47,7 +47,13 @@ export function isLikelyTrainingResult(result: CourseResult): boolean {
   }
 
   if (platform.includes('academia portugal digital')) {
-    return url.includes('/cursos') || url.includes('/formacao') || url.includes('/formação');
+    return (
+      url.includes('/cursos') ||
+      url.includes('/formacao') ||
+      url.includes('/formação') ||
+      url.includes('/course/') ||
+      url.includes('/cursodetalhe')
+    );
   }
 
   if (platform.includes('ibm skillsbuild')) {
@@ -55,7 +61,9 @@ export function isLikelyTrainingResult(result: CourseResult): boolean {
       url.includes('/learn/') ||
       url.includes('/courses/') ||
       url.includes('/course/') ||
-      url.includes('/digital-credentials/')
+      url.includes('/digital-credentials/') ||
+      url.includes('yourlearning.ibm.com') ||
+      url.includes('skillsbuild.org')
     );
   }
 

@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { MicrosoftLearnAdapter } from './adapters/microsoft-learn.adapter';
 import { UdemyAdapter } from './adapters/udemy.adapter';
@@ -7,6 +8,7 @@ import { AcademiaPortugalDigitalAdapter } from './adapters/academia-portugal-dig
 import { TrailheadAdapter } from './adapters/trailhead.adapter';
 import { SoftinsaEverydayLearningAdapter } from './adapters/softinsa-el.adapter';
 import { IPlatformAdapter } from './interfaces/platform-adapter.interface';
+import { decryptApiKey, isEncrypted } from '../common/platform-crypto.util';
 
 @Injectable()
 export class PlatformRegistry implements OnModuleInit {
@@ -15,6 +17,7 @@ export class PlatformRegistry implements OnModuleInit {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
     private readonly msLearn: MicrosoftLearnAdapter,
     private readonly udemy: UdemyAdapter,
     private readonly ibm: IbmSkillsBuildAdapter,
@@ -47,21 +50,37 @@ export class PlatformRegistry implements OnModuleInit {
     });
 
     const activeAdapters: IPlatformAdapter[] = [];
+    const encKey = this.config.get<string>('platforms.encryptionKey') ?? '';
 
     for (const p of platforms) {
       const adapter = this.adapters.get(p.name);
       if (adapter) {
+        let plainApiKey: string | null = null;
+        if (p.apiKey) {
+          try {
+            plainApiKey = encKey && isEncrypted(p.apiKey)
+              ? decryptApiKey(p.apiKey, encKey)
+              : p.apiKey;
+          } catch (e) {
+            this.logger.warn(`[${p.name}] Falha ao desencriptar apiKey: ${(e as Error).message}`);
+          }
+        }
         // Atualizar config dinâmica da base class se necessário.
         // Como o adapter é Singleton, passamos as configs da DB para o adapter.
         (adapter as any).platform = {
-           id: p.id,
-           name: p.name,
-           type: p.type,
-           apiEndpoint: p.apiEndpoint,
-           apiKeyRequired: p.apiKeyRequired,
-           config: p.config || {},
+          id: p.id,
+          name: p.name,
+          type: p.type,
+          apiEndpoint: p.apiEndpoint,
+          apiKeyRequired: p.apiKeyRequired,
+          apiKey: plainApiKey,
+          config: p.config || {},
         };
         activeAdapters.push(adapter);
+      } else {
+        this.logger.warn(
+          `[PlatformRegistry] Plataforma '${p.name}' está ativa na DB mas não tem adapter registado.`,
+        );
       }
     }
 

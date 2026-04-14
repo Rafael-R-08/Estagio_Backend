@@ -7,7 +7,25 @@ import { CacheService } from '../../cache/cache.service';
 import type { CourseResult } from '../interfaces/platform-adapter.interface';
 
 const BASE_URL = 'https://skillsbuild.org';
-const CATALOG_URL = `${BASE_URL}/learn`;
+/**
+ * Catálogo por categorias — a antiga URL /learn retorna 404.
+ * Percorremos as categorias principais de /students/course-catalog.
+ */
+const CATALOG_BASE = `${BASE_URL}/students/course-catalog`;
+
+/** Categorias de interesse para colaboradores Softinsa */
+const CATALOG_CATEGORIES = [
+  'artificial-intelligence',
+  'cloud-computing',
+  'cybersecurity',
+  'data-science',
+  'enterprise-computing',
+  'web-development',
+  'it-support',
+  'quantum-computing',
+  'professional-skills',
+  'agile',
+] as const;
 
 /** Cache do catálogo IBM: 12 horas */
 const CATALOG_CACHE_TTL = 43200;
@@ -62,7 +80,10 @@ export class IbmSkillsBuildAdapter extends BasePlatformAdapter {
       .map(({ _score: _, ...rest }) => rest);
   }
 
-  /** Obtém o catálogo completo com cache de 12h. Se forceRefresh=true, ignora cache. */
+  /**
+   * Obtém o catálogo percorrendo as categorias de /students/course-catalog.
+   * Cache de 12h. Se forceRefresh=true, ignora cache.
+   */
   async getAllCourses(forceRefresh = false): Promise<CourseResult[]> {
     if (!forceRefresh) {
       const cached = await this.cache.get(IBM_CATALOG_CACHE_KEY);
@@ -75,54 +96,65 @@ export class IbmSkillsBuildAdapter extends BasePlatformAdapter {
       }
     }
 
-    const catalogUrl = this.platform.apiEndpoint || CATALOG_URL;
-    try {
-      const response = await firstValueFrom(
-        this.http
-          .get<string>(catalogUrl, {
-            headers: {
-              'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-              Accept: 'text/html,application/xhtml+xml',
-              'Accept-Language': 'en-US,en;q=0.9',
-            },
-            responseType: 'text',
-          })
-          .pipe(timeout(25_000)),
-      );
-
-      const results = this.parseHtml(response.data);
-      if (results.length > 0) {
-        await this.cache.set(
-          IBM_CATALOG_CACHE_KEY,
-          JSON.stringify(results),
-          CATALOG_CACHE_TTL,
-        );
-        this.logger.log(
-          `[IBM SkillsBuild] Catálogo carregado: ${results.length} itens (cache 12h).`,
-        );
-      }
-      return results;
-    } catch (error: unknown) {
-      this.logger.error(
-        `[IBM SkillsBuild] Erro HTTP ao obter catálogo: ${String(error)}`,
-      );
-      return [];
-    }
-  }
-
-  private parseHtml(html: string): CourseResult[] {
-    const results: CourseResult[] = [];
+    const allResults: CourseResult[] = [];
     const seen = new Set<string>();
 
-    // Estratégia A: JSON-LD via cheerio (mais estruturado e fiável)
-    const fromJsonLd = this.parseJsonLd(html, seen);
-    results.push(...fromJsonLd);
+    // Se apiEndpoint estiver configurado na DB, usado como única fonte
+    const customEndpoint = this.platform.apiEndpoint;
+    const categories = customEndpoint
+      ? [customEndpoint]
+      : CATALOG_CATEGORIES.map((c) => `${CATALOG_BASE}/${c}`);
 
-    // Estratégia B: Cards HTML via cheerio (se JSON-LD insuficiente)
+    for (const url of categories) {
+      try {
+        const response = await firstValueFrom(
+          this.http
+            .get<string>(url, {
+              headers: {
+                'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                Accept: 'text/html,application/xhtml+xml',
+                'Accept-Language': 'en-US,en;q=0.9',
+              },
+              responseType: 'text',
+            })
+            .pipe(timeout(15_000)),
+        );
+        const pageResults = this.parseHtml(response.data as string, seen);
+        allResults.push(...pageResults);
+      } catch (error: unknown) {
+        this.logger.warn(
+          `[IBM SkillsBuild] Erro ao obter categoria ${url}: ${String(error)}`,
+        );
+      }
+    }
+
+    if (allResults.length > 0) {
+      await this.cache.set(
+        IBM_CATALOG_CACHE_KEY,
+        JSON.stringify(allResults),
+        CATALOG_CACHE_TTL,
+      );
+      this.logger.log(
+        `[IBM SkillsBuild] Catálogo carregado: ${allResults.length} itens de ${categories.length} categorias (cache 12h).`,
+      );
+    } else {
+      this.logger.warn('[IBM SkillsBuild] Nenhum curso encontrado em nenhuma categoria.');
+    }
+    return allResults;
+  }
+
+  private parseHtml(html: string, seen: Set<string> = new Set()): CourseResult[] {
+    const results: CourseResult[] = [];
+
+    // Estratégia A: Cards com selector atualizado para nova estrutura skillsbuild.org (2025+)
+    const fromCards = this.parseCards(html, seen);
+    results.push(...fromCards);
+
+    // Estratégia B: JSON-LD (legacy)
     if (results.length < 5) {
-      const fromCards = this.parseCards(html, seen);
-      results.push(...fromCards);
+      const fromJsonLd = this.parseJsonLd(html, seen);
+      results.push(...fromJsonLd);
     }
 
     // Estratégia C: Regex de metadados (último recurso)
@@ -189,7 +221,7 @@ export class IbmSkillsBuildAdapter extends BasePlatformAdapter {
       ? rawUrl
       : rawUrl
         ? `${BASE_URL}${rawUrl}`
-        : CATALOG_URL;
+        : CATALOG_BASE;
     const slug = url.split('/').filter(Boolean).pop() ?? title;
 
     const tags: string[] = [];
@@ -216,14 +248,60 @@ export class IbmSkillsBuildAdapter extends BasePlatformAdapter {
     );
   }
 
-  /** Estratégia B: Cards HTML via cheerio */
+  /** Estratégia B: Cards HTML via cheerio — suporta layout sb-card (2025+) e layouts antigos */
   private parseCards(html: string, seen: Set<string>): CourseResult[] {
     const $ = cheerio.load(html);
     const results: CourseResult[] = [];
 
-    // Seletores multi-fallback para resiliência a redesigns
-    const cardSelectors = [
-      '.card',
+    // Novo layout 2025+: <a href="https://students.yourlearning.ibm.com/..." class="sb-card ...">
+    // O anchor engloba o card inteiro → usar o próprio <a> como container
+    $('a[href*="yourlearning.ibm.com"]').each((_, el) => {
+      const anchor = $(el);
+      const href = anchor.attr('href') ?? '';
+      if (!href) return;
+
+      const title = anchor.find('h2, h3, h4, strong').first().text().trim()
+        || anchor.attr('aria-label')?.trim()
+        || '';
+      if (!title || title.length < 4 || seen.has(title)) return;
+
+      seen.add(title);
+      const description = anchor.find('p').first().text().trim();
+
+      const metaText = anchor.text().toLowerCase();
+      const levelMatch = metaText.match(
+        /\b(beginner|intermediate|advanced|getting started|foundations|professional)\b/,
+      );
+      const levelRaw = levelMatch?.[1] ?? '';
+
+      const durationMatch = metaText.match(/(\d+)\s*(hour|hr|min)/);
+      let durationHours: number | undefined;
+      if (durationMatch) {
+        const qty = parseInt(durationMatch[1], 10);
+        durationHours = durationMatch[2].startsWith('min')
+          ? parseFloat((qty / 60).toFixed(2))
+          : qty;
+      }
+
+      const slug = href.split('/').filter(Boolean).pop()?.split('?')[0]
+        ?? title.toLowerCase().replace(/\s+/g, '-');
+      results.push(
+        this.buildResult(
+          `ibm:card:${slug.slice(0, 60)}`,
+          title,
+          description,
+          href,
+          levelRaw,
+          [],
+          durationHours != null ? `PT${durationHours}H` : undefined,
+        ),
+      );
+    });
+
+    if (results.length > 0) return results;
+
+    // Fallback layouts antigos
+    const fallbackSelectors = [
       '[class*="course-card"]',
       '[class*="CourseCard"]',
       'article',
@@ -231,8 +309,8 @@ export class IbmSkillsBuildAdapter extends BasePlatformAdapter {
       '[data-testid*="course"]',
     ];
 
-    for (const selector of cardSelectors) {
-      if ($(selector).length < 3) continue; // selector muito genérico se poucos resultados
+    for (const selector of fallbackSelectors) {
+      if ($(selector).length < 3) continue;
 
       $(selector).each((_, el) => {
         const card = $(el);
@@ -243,30 +321,16 @@ export class IbmSkillsBuildAdapter extends BasePlatformAdapter {
         const title = titleEl.text().trim();
         if (!title || title.length < 4 || seen.has(title)) return;
 
-        // Tentar encontrar um link para o curso
-        const linkEl = card
-          .find(
-            'a[href*="/course"], a[href*="/learn/"], a[href*="/digital-credentials/"]',
-          )
-          .first();
         const href =
-          linkEl.attr('href') ?? card.find('a').first().attr('href') ?? '';
+          card.find('a[href*="yourlearning.ibm.com"], a[href*="/course"], a[href*="/learn/"]').first().attr('href')
+          ?? card.find('a').first().attr('href')
+          ?? '';
         const url = href
-          ? href.startsWith('http')
-            ? href
-            : `${BASE_URL}${href}`
-          : CATALOG_URL;
-
-        if (!url.includes('skillsbuild.org') && url !== CATALOG_URL) return;
+          ? href.startsWith('http') ? href : `${BASE_URL}${href}`
+          : CATALOG_BASE;
 
         seen.add(title);
-        const description = card
-          .find(
-            'p, [class*="description"], [class*="Description"], [class*="summary"]',
-          )
-          .first()
-          .text()
-          .trim();
+        const description = card.find('p').first().text().trim();
 
         const metaText = card.text().toLowerCase();
         const levelMatch = metaText.match(
@@ -274,28 +338,10 @@ export class IbmSkillsBuildAdapter extends BasePlatformAdapter {
         );
         const levelRaw = levelMatch?.[1] ?? '';
 
-        const durationMatch = metaText.match(/(\d+)\s*(hour|hr|min)/);
-        let durationHours: number | undefined;
-        if (durationMatch) {
-          const qty = parseInt(durationMatch[1], 10);
-          durationHours = durationMatch[2].startsWith('min')
-            ? parseFloat((qty / 60).toFixed(2))
-            : qty;
-        }
-
-        const slug =
-          url.split('/').filter(Boolean).pop() ??
-          title.toLowerCase().replace(/\s+/g, '-');
+        const slug = url.split('/').filter(Boolean).pop()?.split('?')[0]
+          ?? title.toLowerCase().replace(/\s+/g, '-');
         results.push(
-          this.buildResult(
-            `ibm:card:${slug.slice(0, 60)}`,
-            title,
-            description,
-            url,
-            levelRaw,
-            [],
-            durationHours != null ? `PT${durationHours}H` : undefined,
-          ),
+          this.buildResult(`ibm:card:${slug.slice(0, 60)}`, title, description, url, levelRaw, []),
         );
       });
 
@@ -369,7 +415,7 @@ export class IbmSkillsBuildAdapter extends BasePlatformAdapter {
       const courseUrl =
         [...urlMap.entries()].find(([k]) =>
           k.includes(slugKey.slice(0, 10)),
-        )?.[1] ?? CATALOG_URL;
+        )?.[1] ?? `${CATALOG_BASE}/artificial-intelligence`;
 
       const after = text.slice(metaIndex, metaIndex + 400);
       const descLines = after

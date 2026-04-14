@@ -90,34 +90,27 @@ export class TrailheadAdapter extends BasePlatformAdapter {
   ): Promise<CourseResult[]> {
     if (filters?.isFree === false) return []; // Trailhead é sempre gratuito
 
-    let html: string;
-    try {
-      // Filtrar por tipos de conteúdo (module, trail, superbadge) para reduzir ruído
-      const response = await firstValueFrom(
-        this.http
-          .get<string>(SEARCH_URL, {
-            params: {
-              keywords: query,
-              // Filtro de tipo nativo da Trailhead search
-              type: 'module,trail,superbadge',
-            },
-            headers: {
-              'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-              Accept: 'text/html,application/xhtml+xml',
-              'Accept-Language': 'en-US,en;q=0.9',
-            },
-            responseType: 'text',
-          })
-          .pipe(timeout(20_000)),
-      );
-      html = response.data;
-    } catch (error: unknown) {
-      this.logger.error(`[Trailhead] Erro ao pesquisar: ${String(error)}`);
-      return [];
-    }
+    // A página de pesquisa do Trailhead é uma SPA renderizada por JavaScript.
+    // Usamos o catálogo via sitemap.xml como fonte principal (cache 24h).
+    const catalog = await this.getFullCatalog();
+    if (catalog.length === 0) return [];
 
-    return this.parseHtml(html).slice(0, limit);
+    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+
+    return catalog
+      .map((c) => {
+        const haystack = `${c.title} ${c.description} ${c.tags.join(' ')}`.toLowerCase();
+        const matchCount = terms.reduce(
+          (acc, t) => acc + (haystack.includes(t) ? 1 : 0),
+          0,
+        );
+        return { ...c, _score: matchCount };
+      })
+      .filter((c) => c._score > 0)
+      .sort((a, b) => b._score - a._score)
+      .slice(0, limit)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      .map(({ _score: _, ...rest }) => rest);
   }
 
   private parseHtml(html: string): CourseResult[] {
@@ -357,7 +350,8 @@ export class TrailheadAdapter extends BasePlatformAdapter {
           while ((match = subUrlRegex.exec(xml)) !== null) {
             const subUrl = match[1];
             // Só nos interessam sub-sitemaps com conteúdo de aprendizagem
-            if (!/modules|trails|superbadge|learn/i.test(subUrl)) continue;
+            // content_sitemap.xml contém todos os módulos/trails/superbadges
+            if (!/modules|trails|superbadge|learn|content_sitemap/i.test(subUrl)) continue;
 
             subFetches.push(
               firstValueFrom(

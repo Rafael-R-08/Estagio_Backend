@@ -75,7 +75,7 @@ async function main() {
   console.log('Iniciando seed...\n');
 
   // Plataformas
-  const [udemy, msLearn, linkedin, coursera, internal] = await Promise.all([
+  const [udemy, msLearn, ibm, academia, trailhead, softinsaEl, softinsaInternal, linkedin, coursera] = await Promise.all([
     prisma.learningPlatform.upsert({
       where: { name: 'Udemy' },
       update: {},
@@ -99,24 +99,47 @@ async function main() {
       },
     }),
     prisma.learningPlatform.upsert({
-      where: { name: 'LinkedIn Learning' },
+      where: { name: 'IBM SkillsBuild' },
       update: {},
       create: {
-        name: 'LinkedIn Learning',
-        type: 'Business',
+        name: 'IBM SkillsBuild',
+        type: 'Tech',
         enabled: true,
         searchEnabled: true,
         config: {},
       },
     }),
     prisma.learningPlatform.upsert({
-      where: { name: 'Coursera' },
+      where: { name: 'Academia Portugal Digital' },
       update: {},
       create: {
-        name: 'Coursera',
-        type: 'Academic',
+        name: 'Academia Portugal Digital',
+        type: 'Education',
         enabled: true,
         searchEnabled: true,
+        config: {},
+      },
+    }),
+    prisma.learningPlatform.upsert({
+      where: { name: 'Trailhead' },
+      update: {},
+      create: {
+        name: 'Trailhead',
+        type: 'Tech',
+        enabled: true,
+        searchEnabled: true,
+        config: {},
+      },
+    }),
+    prisma.learningPlatform.upsert({
+      where: { name: 'Softinsa Everyday Learning' },
+      update: {},
+      create: {
+        name: 'Softinsa Everyday Learning',
+        type: 'Internal',
+        enabled: true,
+        searchEnabled: false,
+        apiKeyRequired: true,
         config: {},
       },
     }),
@@ -127,6 +150,28 @@ async function main() {
         name: 'Softinsa Internal',
         type: 'Internal',
         enabled: true,
+        searchEnabled: false,
+        config: {},
+      },
+    }),
+    prisma.learningPlatform.upsert({
+      where: { name: 'LinkedIn Learning' },
+      update: {},
+      create: {
+        name: 'LinkedIn Learning',
+        type: 'Tech',
+        enabled: false,
+        searchEnabled: false,
+        config: {},
+      },
+    }),
+    prisma.learningPlatform.upsert({
+      where: { name: 'Coursera' },
+      update: {},
+      create: {
+        name: 'Coursera',
+        type: 'Education',
+        enabled: false,
         searchEnabled: false,
         config: {},
       },
@@ -635,7 +680,7 @@ async function main() {
     {
       id: 'tr-carlos-002',
       userId: manager.id,
-      platformId: internal.id,
+      platformId: softinsaInternal.id,
       title: 'Softinsa Leadership Program 2025',
       url: 'https://learning.softinsa.com/leadership-2025',
       status: TrainingStatus.completed,

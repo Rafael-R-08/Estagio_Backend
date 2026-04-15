@@ -8,6 +8,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateCalendarEventDto } from './dto/create-calendar-event.dto';
 import { UpdateCalendarEventDto } from './dto/update-calendar-event.dto';
 
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { CalendarReminderJobData, ReminderJobType } from './processors/calendar.processor';
+
 const DEFAULT_REMINDER_MINUTES = 30;
 
 function computeReminderFireAt(
@@ -19,7 +23,50 @@ function computeReminderFireAt(
 
 @Injectable()
 export class CalendarService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @InjectQueue('calendar-reminders') private readonly calendarQueue: Queue<CalendarReminderJobData>,
+  ) {}
+
+  private async scheduleReminders(eventId: string, eventDate: Date, reminderMinutesBefore: number) {
+    const now = Date.now();
+    
+    // Tipos de lembretes e seus timings
+    const reminderConfigs: { type: ReminderJobType; time: Date }[] = [
+      { type: 'dayBefore', time: new Date(new Date(eventDate).setDate(eventDate.getDate() - 1)) },
+      { type: 'dayOf', time: new Date(new Date(eventDate).setHours(9, 0, 0, 0)) }, // 9 AM do próprio dia
+      { type: 'final', time: computeReminderFireAt(eventDate, reminderMinutesBefore) }
+    ];
+
+    for (const config of reminderConfigs) {
+      const delay = config.time.getTime() - now;
+      
+      // Só agendar se for no futuro
+      if (delay > 0) {
+        await this.calendarQueue.add(
+          'reminder',
+          { eventId, type: config.type },
+          { 
+            delay, 
+            jobId: `reminder:${eventId}:${config.type}`,
+            removeOnComplete: true,
+            removeOnFail: false
+          }
+        );
+      }
+    }
+  }
+
+  private async cancelReminders(eventId: string) {
+    const types: ReminderJobType[] = ['dayBefore', 'dayOf', 'final'];
+    for (const type of types) {
+      const jobId = `reminder:${eventId}:${type}`;
+      const job = await this.calendarQueue.getJob(jobId);
+      if (job) {
+        await job.remove();
+      }
+    }
+  }
 
   async create(userId: string, dto: CreateCalendarEventDto) {
     const eventDate = new Date(dto.eventDate);
@@ -34,7 +81,7 @@ export class CalendarService {
       reminderMinutesBefore,
     );
 
-    return await this.prisma.calendarEvent.create({
+    const event = await this.prisma.calendarEvent.create({
       data: {
         userId,
         title: dto.title,
@@ -44,6 +91,10 @@ export class CalendarService {
         reminderFireAt,
       },
     });
+
+    await this.scheduleReminders(event.id, eventDate, reminderMinutesBefore);
+
+    return event;
   }
 
   async findAll(userId: string) {
@@ -79,7 +130,7 @@ export class CalendarService {
     const datesChanged =
       dto.eventDate !== undefined || dto.reminderMinutesBefore !== undefined;
 
-    return await this.prisma.calendarEvent.update({
+    const updated = await this.prisma.calendarEvent.update({
       where: { id },
       data: {
         ...(dto.title && { title: dto.title }),
@@ -94,10 +145,18 @@ export class CalendarService {
         }),
       },
     });
+
+    if (datesChanged) {
+      await this.cancelReminders(id);
+      await this.scheduleReminders(id, eventDate, reminderMinutesBefore);
+    }
+
+    return updated;
   }
 
   async remove(id: string, userId: string) {
     await this.findOne(id, userId);
+    await this.cancelReminders(id);
     await this.prisma.calendarEvent.delete({ where: { id } });
     return { message: 'Evento eliminado com sucesso' };
   }

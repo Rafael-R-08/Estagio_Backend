@@ -26,7 +26,7 @@ import { SubscribePushDto } from './dto/subscribe-push.dto';
 @UseGuards(JwtAuthGuard)
 @Controller('push')
 export class PushController {
-  constructor(private readonly pushService: PushService) {}
+  constructor(private readonly pushService: PushService) { }
 
   @Get('vapid-public-key')
   @ApiOperation({ summary: 'Obter a VAPID public key para o frontend' })

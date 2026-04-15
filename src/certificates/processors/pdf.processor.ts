@@ -4,6 +4,9 @@ import { Job } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MetadataExtractionService } from '../../ai/extractors/metadata-extraction.service';
 import axios from 'axios';
+import * as fs from 'fs/promises';
+import { join } from 'path';
+
 import { ProcessingStatus } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CertificateProcessedEvent } from '../../notifications/events/certificate-processed.event';
@@ -52,10 +55,22 @@ export class PdfProcessor extends WorkerHost {
       });
       const lang = settings?.uiLanguage || 'pt';
 
-      // 2. Descarregar ficheiro do Supabase
-      const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
-      const buffer = Buffer.from(response.data);
-      const contentType = String(response.headers?.['content-type'] || mimeType || '');
+      // 2. Obter buffer do ficheiro (Supabase ou Local Fallback)
+      let buffer: Buffer;
+      let contentType: string;
+
+      if (fileUrl.startsWith('/uploads/')) {
+        // Fallback local: ler diretamente do disco
+        const filePath = join(process.cwd(), fileUrl);
+        buffer = await fs.readFile(filePath);
+        contentType = mimeType || 'application/pdf';
+        this.logger.log(`Ficheiro lido do fallback local: ${filePath}`);
+      } else {
+        // Supabase ou URL externa: download via axios
+        const response = await axios.get(fileUrl, { responseType: 'arraybuffer' });
+        buffer = Buffer.from(response.data);
+        contentType = String(response.headers?.['content-type'] || mimeType || '');
+      }
 
       this.emitStatus(jobId, 'file_downloaded', { size: buffer.length, contentType });
 

@@ -29,7 +29,7 @@ export class CalendarReminderScheduler {
 
   // ── Daily 09:00: "day before" and "day of" ─────────────────────────────────
 
-  @Cron(DAILY_9AM)
+  // @Cron(DAILY_9AM)
   async checkDailyReminders(): Promise<void> {
     const frontendUrl =
       this.config.get<string>('app.frontendUrl') ?? 'http://localhost:4200';
@@ -137,7 +137,7 @@ export class CalendarReminderScheduler {
 
   // ── Every 15 min: close-up "final" reminder ────────────────────────────────
 
-  @Cron(EVERY_15_MINUTES)
+  // @Cron(EVERY_15_MINUTES)
   async checkFinalReminders(): Promise<void> {
     const frontendUrl =
       this.config.get<string>('app.frontendUrl') ?? 'http://localhost:4200';

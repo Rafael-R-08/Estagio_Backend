@@ -55,7 +55,7 @@ export class SupabaseStorageService {
         });
 
       if (error) {
-        this.logger.error(`Error uploading to Supabase (${targetBucket}): ${error.message}`);
+        this.logger.error(`Error uploading to Supabase (${targetBucket}): ${error.message} - ${JSON.stringify(error)}`);
         return this.saveLocal(file.buffer, filename, targetBucket);
       }
 

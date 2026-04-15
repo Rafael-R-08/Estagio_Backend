@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -9,12 +8,6 @@ import {
   buildCalendarReminderEmail,
   CalendarReminderType,
 } from '../templates/email-templates';
-
-// ── Cron expressions ────────────────────────────────────────────────────────
-// Daily at 09:00 → day-before + day-of digest
-const DAILY_9AM = '0 9 * * *';
-// Every 15 minutes → close-up "final" reminder
-const EVERY_15_MINUTES = '*/15 * * * *';
 
 @Injectable()
 export class CalendarReminderScheduler {

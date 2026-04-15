@@ -10,7 +10,10 @@ import { UpdateCalendarEventDto } from './dto/update-calendar-event.dto';
 
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { CalendarReminderJobData, ReminderJobType } from './processors/calendar.processor';
+import {
+  CalendarReminderJobData,
+  ReminderJobType,
+} from './processors/calendar.processor';
 
 const DEFAULT_REMINDER_MINUTES = 30;
 
@@ -25,33 +28,47 @@ function computeReminderFireAt(
 export class CalendarService {
   constructor(
     private readonly prisma: PrismaService,
-    @InjectQueue('calendar-reminders') private readonly calendarQueue: Queue<CalendarReminderJobData>,
+    @InjectQueue('calendar-reminders')
+    private readonly calendarQueue: Queue<CalendarReminderJobData>,
   ) {}
 
-  private async scheduleReminders(eventId: string, eventDate: Date, reminderMinutesBefore: number) {
+  private async scheduleReminders(
+    eventId: string,
+    eventDate: Date,
+    reminderMinutesBefore: number,
+  ) {
     const now = Date.now();
-    
+
     // Tipos de lembretes e seus timings
     const reminderConfigs: { type: ReminderJobType; time: Date }[] = [
-      { type: 'dayBefore', time: new Date(new Date(eventDate).setDate(eventDate.getDate() - 1)) },
-      { type: 'dayOf', time: new Date(new Date(eventDate).setHours(9, 0, 0, 0)) }, // 9 AM do próprio dia
-      { type: 'final', time: computeReminderFireAt(eventDate, reminderMinutesBefore) }
+      {
+        type: 'dayBefore',
+        time: new Date(new Date(eventDate).setDate(eventDate.getDate() - 1)),
+      },
+      {
+        type: 'dayOf',
+        time: new Date(new Date(eventDate).setHours(9, 0, 0, 0)),
+      }, // 9 AM do próprio dia
+      {
+        type: 'final',
+        time: computeReminderFireAt(eventDate, reminderMinutesBefore),
+      },
     ];
 
     for (const config of reminderConfigs) {
       const delay = config.time.getTime() - now;
-      
+
       // Só agendar se for no futuro
       if (delay > 0) {
         await this.calendarQueue.add(
           'reminder',
           { eventId, type: config.type },
-          { 
-            delay, 
+          {
+            delay,
             jobId: `reminder:${eventId}:${config.type}`,
             removeOnComplete: true,
-            removeOnFail: false
-          }
+            removeOnFail: false,
+          },
         );
       }
     }

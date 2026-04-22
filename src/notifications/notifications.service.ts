@@ -4,6 +4,7 @@ import { CreateNotificationDto } from './dto/create-notification.dto';
 import { QueryNotificationsDto } from './dto/query-notifications.dto';
 import { Notification, Prisma } from '@prisma/client';
 import { PushService } from '../push/push.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @Injectable()
 export class NotificationsService {
@@ -12,6 +13,7 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pushService: PushService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async create(dto: CreateNotificationDto): Promise<Notification> {
@@ -29,6 +31,9 @@ export class NotificationsService {
     this.pushService
       .sendToUser(dto.userId, { title: dto.title, body: dto.body })
       .catch((err) => this.logger.warn(`Web push failed: ${err?.message}`));
+
+    // Emit SSE event so connected clients update in real-time
+    this.eventEmitter.emit(`notification.new.${dto.userId}`, notification);
 
     return notification;
   }
@@ -75,6 +80,13 @@ export class NotificationsService {
       data: { isRead: true },
     });
     return { count: result.count };
+  }
+
+  async getUnreadCount(userId: string): Promise<{ unreadCount: number }> {
+    const unreadCount = await this.prisma.notification.count({
+      where: { userId, isRead: false },
+    });
+    return { unreadCount };
   }
 
   async deleteOld(userId: string, olderThanDays = 90): Promise<void> {

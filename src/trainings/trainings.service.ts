@@ -10,7 +10,7 @@ import { CreateResourceDto } from './dto/create-resource.dto';
 import { UpdateResourceDto } from './dto/update-resource.dto';
 import { TrainingStatus } from '@prisma/client';
 import { SupabaseStorageService } from '../certificates/supabase-storage.service';
-import { TrainingCompletedEvent, TrainingCreatedEvent } from '../notifications/events/training.events';
+import { TrainingCompletedEvent, TrainingCreatedEvent, TrainingStartedEvent } from '../notifications/events/training.events';
 
 @Injectable()
 export class TrainingsService {
@@ -21,6 +21,14 @@ export class TrainingsService {
   ) { }
 
   async create(userId: string, dto: CreateTrainingDto) {
+    // Auto-set startedAt when creating directly as ongoing
+    const resolvedStartedAt =
+      dto.status === TrainingStatus.ongoing && !dto.startedAt
+        ? new Date()
+        : dto.startedAt
+          ? new Date(dto.startedAt)
+          : null;
+
     const record = await this.prisma.trainingRecord.create({
       data: {
         userId,
@@ -28,7 +36,7 @@ export class TrainingsService {
         url: dto.url,
         status: dto.status,
         platformId: dto.platformId ?? null,
-        startedAt: dto.startedAt ? new Date(dto.startedAt) : null,
+        startedAt: resolvedStartedAt,
         completedAt: dto.completedAt ? new Date(dto.completedAt) : null,
         rating: dto.rating ?? null,
         relevance: dto.relevance ?? null,
@@ -44,6 +52,14 @@ export class TrainingsService {
       this.eventEmitter.emit(
         'training.created',
         new TrainingCreatedEvent(record.id, userId, record.title),
+      );
+    }
+
+    // Notify when created directly as ongoing
+    if (dto.status === TrainingStatus.ongoing) {
+      this.eventEmitter.emit(
+        'training.started',
+        new TrainingStartedEvent(record.id, userId, record.title, record.startedAt ?? new Date()),
       );
     }
 
@@ -176,6 +192,15 @@ export class TrainingsService {
 
   async update(userId: string, id: string, dto: UpdateTrainingDto) {
     const existing = await this.findOne(userId, id);
+    // Auto-set startedAt on transition to ongoing if neither DTO nor existing record has it
+    const autoStartedAt =
+      dto.status === TrainingStatus.ongoing &&
+      existing.status !== TrainingStatus.ongoing &&
+      dto.startedAt === undefined &&
+      !existing.startedAt
+        ? new Date()
+        : undefined;
+
     const updated = await this.prisma.trainingRecord.update({
       where: { id },
       data: {
@@ -183,7 +208,11 @@ export class TrainingsService {
         ...(dto.url && { url: dto.url }),
         ...(dto.status && { status: dto.status }),
         ...(dto.platformId !== undefined && { platformId: dto.platformId }),
-        ...(dto.startedAt !== undefined && { startedAt: dto.startedAt ? new Date(dto.startedAt) : null }),
+        ...(dto.startedAt !== undefined
+          ? { startedAt: dto.startedAt ? new Date(dto.startedAt) : null }
+          : autoStartedAt !== undefined
+            ? { startedAt: autoStartedAt }
+            : {}),
         ...(dto.completedAt !== undefined && { completedAt: dto.completedAt ? new Date(dto.completedAt) : null }),
         ...(dto.rating !== undefined && { rating: dto.rating }),
         ...(dto.relevance !== undefined && { relevance: dto.relevance }),
@@ -197,6 +226,17 @@ export class TrainingsService {
         resources: { include: { files: true }, orderBy: { position: 'asc' } }
       },
     });
+
+    // Emit training.started on transition to ongoing
+    if (
+      dto.status === TrainingStatus.ongoing &&
+      existing.status !== TrainingStatus.ongoing
+    ) {
+      this.eventEmitter.emit(
+        'training.started',
+        new TrainingStartedEvent(id, userId, updated.title, updated.startedAt ?? new Date()),
+      );
+    }
 
     // Emit training.completed only on the transition to 'completed'
     if (

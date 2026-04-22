@@ -8,6 +8,7 @@ import { NotificationsService } from '../notifications.service';
 import {
   TrainingCompletedEvent,
   TrainingCreatedEvent,
+  TrainingStartedEvent,
 } from '../events/training.events';
 import { buildTrainingCompletedEmail } from '../templates/email-templates';
 
@@ -93,6 +94,34 @@ export class TrainingNotificationListener {
     } catch (error) {
       this.logger.error(
         `Erro ao processar training.created para userId=${event.userId}: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+    }
+  }
+
+  @OnEvent('training.started')
+  async handleTrainingStarted(event: TrainingStartedEvent): Promise<void> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: event.userId },
+        select: { settings: true },
+      });
+      if (!user) return;
+
+      const settings = user.settings;
+
+      if (!settings || settings.notifyInApp) {
+        await this.notificationsService.create({
+          userId: event.userId,
+          type: NotificationType.TRAINING_STARTED,
+          title: `Formação iniciada: ${event.title}`,
+          body: 'Boa sorte! A formação foi marcada como em curso.',
+          metadata: { trainingId: event.trainingId },
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `Erro ao processar training.started para userId=${event.userId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
     }

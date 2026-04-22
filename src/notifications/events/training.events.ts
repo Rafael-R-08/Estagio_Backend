@@ -14,3 +14,12 @@ export class TrainingCreatedEvent {
     public readonly title: string,
   ) {}
 }
+
+export class TrainingStartedEvent {
+  constructor(
+    public readonly trainingId: string,
+    public readonly userId: string,
+    public readonly title: string,
+    public readonly startedAt: Date,
+  ) {}
+}

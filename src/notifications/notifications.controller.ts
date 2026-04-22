@@ -5,10 +5,14 @@ import {
   Patch,
   Param,
   Query,
+  Req,
   UseGuards,
   HttpCode,
   HttpStatus,
+  Sse,
+  MessageEvent,
 } from '@nestjs/common';
+import { Observable, fromEvent, map } from 'rxjs';
 import {
   ApiTags,
   ApiOperation,
@@ -19,13 +23,17 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { NotificationsService } from './notifications.service';
 import { QueryNotificationsDto } from './dto/query-notifications.dto';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @ApiTags('Notifications')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('notifications')
 export class NotificationsController {
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(
+    private readonly notificationsService: NotificationsService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Listar notificações do utilizador autenticado' })
@@ -38,6 +46,21 @@ export class NotificationsController {
     @Query() query: QueryNotificationsDto,
   ) {
     return this.notificationsService.findForUser(userId, query);
+  }
+
+  @Get('unread-count')
+  @ApiOperation({ summary: 'Obter contagem de notificações não lidas (leve, para badge)' })
+  @ApiResponse({ status: 200, description: 'Contagem de não lidas' })
+  async getUnreadCount(@CurrentUser() userId: string) {
+    return this.notificationsService.getUnreadCount(userId);
+  }
+
+  @Sse('stream')
+  @ApiOperation({ summary: 'Stream SSE de novas notificações em tempo real' })
+  stream(@CurrentUser() userId: string): Observable<MessageEvent> {
+    return fromEvent(this.eventEmitter, `notification.new.${userId}`).pipe(
+      map((notification) => ({ data: notification }) as MessageEvent),
+    );
   }
 
   @Patch(':id/read')

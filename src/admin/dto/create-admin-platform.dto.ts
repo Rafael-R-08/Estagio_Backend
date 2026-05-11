@@ -7,7 +7,7 @@ export class CreateAdminPlatformDto {
   @MinLength(2)
   name: string;
 
-  @ApiProperty({ description: 'Tipo: udemy | coursera | linkedin | custom | ...' })
+  @ApiProperty({ description: 'Tipo: udemy | custom | ...' })
   @IsString()
   type: string;
 

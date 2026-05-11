@@ -54,9 +54,12 @@ export class CacheService implements OnModuleDestroy {
    * Obtém um valor do cache
    */
   async get(key: string): Promise<string | null> {
+    this.logger.log(`CacheService.get: ${key}`);
     if (this.redis && this.redisAvailable) {
       try {
-        return await this.redis.get(key);
+        const val = await this.redis.get(key);
+        this.logger.log(`CacheService.get: ${key} -> ${val ? 'found' : 'not found'}`);
+        return val;
       } catch {
         this.redisAvailable = false;
       }

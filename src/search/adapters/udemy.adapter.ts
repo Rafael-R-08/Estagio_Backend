@@ -9,13 +9,10 @@ import type { CourseResult } from '../interfaces/platform-adapter.interface';
 /**
  * Udemy Adapter
  *
- * A API Affiliate oficial foi descontinuada em janeiro/2025.
- * Estratégia atual: scraping da página de pesquisa pública (JSON-LD + HTML fallback).
- *
- * Se no futuro existir parceria Udemy Business, configurar:
- *   platform.config.mode = 'api'
- *   platform.config.apiKey = '<client_id>:<client_secret>'  (Base64)
- * e o adapter tentará a API REST antes do scraping.
+ * Estratégia de pesquisa (por ordem de prioridade):
+ *  1. API REST pública  (/api-2.0/courses/?search=...) — sem autenticação, retorna JSON.
+ *  2. Udemy Business API — se platform.config.mode='api' e apiKey estiver configurada.
+ *  3. Scraping HTML    — apenas se platform.config.mode='scrape' (instável, Cloudflare).
  */
 
 const UDEMY_SEARCH_BASE = 'https://www.udemy.com/courses/search/';
@@ -47,24 +44,33 @@ export class UdemyAdapter extends BasePlatformAdapter {
     limit: number,
     filters?: { isFree?: boolean; minRating?: number; minRelevance?: number },
   ): Promise<CourseResult[]> {
-    // 1. Se tiver API key configurada (Udemy Business), tentar API primeiro
-    if (this.platform.config?.apiKey && this.platform.config?.mode === 'api') {
+    this.logger.log(`[Udemy] Iniciando pesquisa: "${query}" (limit: ${limit})`);
+
+    // Verificar se temos API Business configurada primeiro
+    if (this.platform.config?.apiKey) {
+      this.logger.log('[Udemy] Tentando Business API...');
       const apiResults = await this.fetchViaApi(query, limit, filters);
       if (apiResults.length > 0) return apiResults;
     }
 
-    // 2. Scraping desativado por omissão: Udemy bloqueia bots com Cloudflare/reCAPTCHA.
-    //    Ativar apenas com config.mode = 'scrape' (instável, sem garantias).
-    if (this.platform.config?.mode !== 'scrape') {
-      this.logger.debug(
-        '[Udemy] Scraping desativado. Configure platform.config.mode="scrape" para ativar ' +
-          'ou platform.config.mode="api" + apiKey para usar Udemy Business API.',
-      );
-      return [];
-    }
+    // Tentar API pública REST (mas provavelmente bloqueada)
+    this.logger.log('[Udemy] Tentando API pública REST...');
+    const publicResults = await this.fetchViaPublicApi(query, limit, filters);
+    if (publicResults.length > 0) return publicResults;
 
-    // 3. Scraping da página de pesquisa pública
-    return this.fetchViaScraping(query, limit, filters);
+    // Scraping como último recurso (também provavelmente bloqueado)
+    this.logger.log('[Udemy] APIs falharam. Tentando scraping...');
+    const scrapedResults = await this.fetchViaScraping(query, limit, filters);
+    if (scrapedResults.length > 0) return scrapedResults;
+
+    // Se nada funcionou, logar aviso sobre configuração necessária
+    this.logger.warn(
+      `[Udemy] Pesquisa falhou para "${query}". ` +
+      `Configure API Business key em https://www.udemy.com/instructor/account/api/ ` +
+      `ou a Udemy pode estar bloqueando acessos automatizados.`,
+    );
+
+    return [];
   }
 
   /** Scraping estratégia primária: JSON-LD → Redux state → HTML cards */
@@ -91,11 +97,23 @@ export class UdemyAdapter extends BasePlatformAdapter {
           .get<string>(url, {
             headers: {
               'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
               Accept:
-                'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-              'Accept-Language': 'en-US,en;q=0.9',
+                'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+              'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7',
               'Accept-Encoding': 'gzip, deflate, br',
+              'Cache-Control': 'no-cache',
+              Pragma: 'no-cache',
+              'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+              'Sec-Ch-Ua-Mobile': '?0',
+              'Sec-Ch-Ua-Platform': '"Linux"',
+              'Sec-Fetch-Dest': 'document',
+              'Sec-Fetch-Mode': 'navigate',
+              'Sec-Fetch-Site': 'none',
+              'Sec-Fetch-User': '?1',
+              'Upgrade-Insecure-Requests': '1',
+              'DNT': '1',
+              'Connection': 'keep-alive',
             },
             responseType: 'text',
           })
@@ -103,8 +121,23 @@ export class UdemyAdapter extends BasePlatformAdapter {
       );
       html = response.data;
     } catch (err: any) {
-      this.logger.error(
-        `[Udemy] Erro ao obter página de pesquisa: ${err.message}`,
+      if (err.response?.status === 403) {
+        this.logger.warn(
+          `[Udemy] Acesso à página de pesquisa bloqueado (403). ` +
+            `A Udemy bloqueia frequentemente acessos automatizados sem API Business.`,
+        );
+      } else {
+        this.logger.error(
+          `[Udemy] Erro ao obter página de pesquisa: ${err.message}`,
+        );
+      }
+      return [];
+    }
+
+    // Verificar se estamos sendo redirecionados para desafio Cloudflare
+    if (html.includes('Just a moment') || html.includes('challenge-platform') || html.includes('cf-browser-verification')) {
+      this.logger.warn(
+        `[Udemy] Acesso bloqueado pelo Cloudflare. A Udemy está protegendo contra acessos automatizados.`,
       );
       return [];
     }
@@ -389,7 +422,81 @@ export class UdemyAdapter extends BasePlatformAdapter {
     return results;
   }
 
-  /** Tentativa via API REST (apenas para Udemy Business com apiKey configurada) */
+  /**
+   * API pública REST da Udemy — sem autenticação.
+   * Endpoint: https://www.udemy.com/api-2.0/courses/?search=...
+   * Funciona para pesquisas básicas sem credenciais.
+   */
+  private async fetchViaPublicApi(
+    query: string,
+    limit: number,
+    filters?: { isFree?: boolean; minRating?: number },
+  ): Promise<CourseResult[]> {
+    const isSimple = (filters as any)?._simple === true;
+    const url = 'https://www.udemy.com/api-2.0/courses/';
+    const params: Record<string, any> = {
+      search: query,
+      page_size: Math.min(limit, 20),
+    };
+
+    if (!isSimple) {
+      params['language'] = 'en';
+      params['fields[course]'] =
+        'id,title,headline,url,visible_instructors,is_paid,price,rating,num_reviews,instructional_level,primary_category,primary_subcategory,image_240x135';
+    }
+
+    if (filters?.isFree === true) params['price'] = 'price-free';
+    if (filters?.isFree === false) params['price'] = 'price-paid';
+    if (filters?.minRating) params['ratings'] = filters.minRating;
+
+    try {
+      const response = await firstValueFrom(
+        this.http
+          .get(url, {
+            headers: {
+              Accept: 'application/json, text/plain, */*',
+              'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7',
+              'User-Agent':
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              Referer: 'https://www.udemy.com/',
+              'Sec-Fetch-Dest': 'empty',
+              'Sec-Fetch-Mode': 'cors',
+              'Sec-Fetch-Site': 'same-origin',
+            },
+            params,
+          })
+          .pipe(timeout(10_000)),
+      );
+
+      const rawResults =
+        (response.data as { results?: unknown[] })?.results ?? [];
+      this.logger.log(
+        `[Udemy] API pública (${isSimple ? 'simples' : 'completa'}): ${rawResults.length} resultados`,
+      );
+      return rawResults.map((item) =>
+        this.normalizeApiItem(item as Record<string, unknown>),
+      );
+    } catch (err: any) {
+      const status = err.response?.status;
+      if (status === 403) {
+        this.logger.warn(
+          `[Udemy] API pública bloqueada (403). A Udemy mudou sua política e agora requer autenticação Business API.`,
+        );
+      } else {
+        this.logger.warn(`[Udemy] API pública falhou (${status}): ${err.message}`);
+      }
+      return [];
+    }
+  }
+
+  /** API REST Udemy Business (requer apiKey em Base64 client_id:client_secret)
+   *
+   * Para configurar:
+   * 1. Acesse https://www.udemy.com/instructor/account/api/
+   * 2. Crie uma aplicação para obter client_id e client_secret
+   * 3. Codifique em Base64: btoa('client_id:client_secret')
+   * 4. Configure apiKey no admin panel da plataforma Udemy
+   */
   private async fetchViaApi(
     query: string,
     limit: number,
@@ -404,7 +511,7 @@ export class UdemyAdapter extends BasePlatformAdapter {
         search: query,
         page_size: limit,
         'fields[course]':
-          'title,headline,url,visible_instructors,is_paid,rating,primary_category,primary_subcategory',
+          'id,title,headline,url,visible_instructors,is_paid,price,rating,num_reviews,instructional_level,primary_category,primary_subcategory',
       };
       if (filters?.isFree !== undefined)
         params['price'] = filters.isFree ? 'price-free' : 'price-paid';
@@ -424,7 +531,7 @@ export class UdemyAdapter extends BasePlatformAdapter {
         this.normalizeApiItem(item as Record<string, unknown>),
       );
     } catch (err: any) {
-      this.logger.warn(`[Udemy] API falhou (${err.message}), a usar scraping.`);
+      this.logger.warn(`[Udemy] API Business falhou (${err.message}).`);
       return [];
     }
   }
@@ -437,22 +544,23 @@ export class UdemyAdapter extends BasePlatformAdapter {
       : `${baseUrl}${relativeUrl}`;
     const externalId = `udemy:api:${String(item.id ?? relativeUrl.split('/').pop())}`;
 
-    const instructors = item.visible_instructors as
-      | Array<{ title?: string }>
-      | undefined;
-    const instructor =
-      instructors?.[0]?.title ?? String(item.instructor_name ?? 'Udemy');
+    const instructors = Array.isArray(item.visible_instructors) ? item.visible_instructors : [];
+    const instructor = instructors.length > 0 
+      ? (instructors[0].display_name || instructors[0].title || 'Udemy')
+      : String(item.instructor_name || 'Udemy');
 
     const tags: string[] = [];
-    if (item.primary_category)
-      tags.push(
-        (item.primary_category as any).title ?? String(item.primary_category),
-      );
-    if (item.primary_subcategory)
-      tags.push(
-        (item.primary_subcategory as any).title ??
-          String(item.primary_subcategory),
-      );
+    if (item.primary_category) {
+      const cat = item.primary_category as any;
+      tags.push(cat.title || String(cat));
+    }
+    if (item.primary_subcategory) {
+      const sub = item.primary_subcategory as any;
+      tags.push(sub.title || String(sub));
+    }
+
+    const rawLevel = String(item.instructional_level ?? '').toLowerCase();
+    const level = LEVEL_MAP[rawLevel];
 
     return {
       externalId,
@@ -460,6 +568,7 @@ export class UdemyAdapter extends BasePlatformAdapter {
       description: String(item.headline ?? '').slice(0, 400),
       url: finalUrl,
       instructor,
+      level,
       rating: typeof item.rating === 'number' ? item.rating : undefined,
       isFree: typeof item.is_paid === 'boolean' ? !item.is_paid : undefined,
       tags: [...new Set(tags)],

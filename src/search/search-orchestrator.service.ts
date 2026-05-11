@@ -28,24 +28,34 @@ export class SearchOrchestratorService {
   async unifiedSearch(queryDto: SearchQueryDto, userId?: string) {
     const { q = '', limit = 10, page = 1, platforms, isFree, minRating, minInternalRating, minRelevance = 0, level, language } = queryDto;
     const isBrowseMode = !q || !q.trim();
+    this.logger.log(`Iniciando pesquisa unificada para: "${q}" (Plataformas Recebidas: ${platforms?.join(', ') || 'Todas'})`);
 
-    this.logger.log(`Iniciando pesquisa unificada para: "${q}" (Plataformas: ${platforms?.join(', ') || 'Todas'})`);
+    // 2. Normalizar nomes de plataformas para match exato com DB/Adapters
+    const allAdapters = await this.platformRegistry.getActiveAdapters();
+    const normalizedPlatforms = (platforms || []).map(p => {
+      const match = allAdapters.find(a => 
+        a.platformName.toLowerCase() === p.toLowerCase() ||
+        a.platformName.toLowerCase().replace(/\s+/g, '-') === p.toLowerCase()
+      );
+      return match ? match.platformName : p;
+    });
+    this.logger.log(`Plataformas Normalizadas: ${normalizedPlatforms.join(', ')}`);
+
 
     // 1. Pesquisa na Cache Local (BD) - Primeiro passo para rapidez
     const cachedResults = await this.dbService.searchFromCache(q, limit, { 
        isFree, 
        minRating, 
        minRelevance, 
-       platforms,
+       platforms: normalizedPlatforms.length > 0 ? normalizedPlatforms : undefined,
        level: level as string | undefined,
        language 
     });
 
-    // 2. Plataformas disponíveis
-    const allAdapters = await this.platformRegistry.getActiveAdapters();
-    const targetAdapters = platforms && platforms.length > 0
-      ? allAdapters.filter(a => platforms.includes(a.platformName))
+    const targetAdapters = normalizedPlatforms.length > 0
+      ? allAdapters.filter(a => normalizedPlatforms.includes(a.platformName))
       : allAdapters;
+    this.logger.log(`Adaptadores Selecionados: ${targetAdapters.map(a => a.platformName).join(', ')}`);
 
     // 3. Pesquisa Externa (Adaptadores) — ignorada em browse mode para reduzir latência
     const externalResults: CourseResult[] = [];
@@ -65,6 +75,8 @@ export class SearchOrchestratorService {
           
           // Background: Gravar novos resultados na cache DB sem bloquear o request principal
           void this.dbService.cacheResults(platformId, filteredResults);
+        } else if (res.status === 'rejected') {
+          this.logger.error(`Falha no adaptador externo: ${res.reason}`);
         }
       }
     }
@@ -100,7 +112,7 @@ export class SearchOrchestratorService {
     const finalResults = isBrowseMode
       ? internalFiltered.map(course => ({ ...course, relevanceScore: 1 }))
       : internalFiltered.map(course => {
-          const queryKeywords = q.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+          const queryKeywords = q.toLowerCase().split(/\s+/).filter(w => w.length >= 1);
           
           // A) Tags Match (50%)
           const matchedTags = course.tags.filter(t => 

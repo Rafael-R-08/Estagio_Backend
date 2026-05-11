@@ -22,7 +22,7 @@ Instruções:
 1. Deteção de Idioma: Identifica se o certificado está em Português (pt) ou Inglês (en).
 2. Campos podem variar entre certificados. Preenche apenas o que existir de forma clara.
 3. Nunca inventes valores. Se não existir informação suficiente, usa null.
-4. Instituição: entidade emissora (ex: IBM, Udemy, LinkedIn Learning, Microsoft, Softinsa).
+4. Instituição: entidade emissora (ex: IBM, Udemy, Microsoft, Softinsa).
 5. Nome do Curso: nome exato do curso/certificação quando explícito.
 6. Datas: data de conclusão e data de expiração se existirem.
 7. Competências: identifica skills técnicas/comportamentais explícitas.

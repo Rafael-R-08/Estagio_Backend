@@ -323,9 +323,7 @@ export class MetadataExtractionService {
     const providers: Array<{ keyword: string; name: string }> = [
       { keyword: 'microsoft', name: 'Microsoft' },
       { keyword: 'udemy', name: 'Udemy' },
-      { keyword: 'linkedin learning', name: 'LinkedIn Learning' },
       { keyword: 'ibm', name: 'IBM' },
-      { keyword: 'coursera', name: 'Coursera' },
       { keyword: 'edx', name: 'edX' },
       { keyword: 'google cloud', name: 'Google Cloud' },
       { keyword: 'aws training', name: 'AWS' },

@@ -6,7 +6,6 @@ import { UdemyAdapter } from './adapters/udemy.adapter';
 import { IbmSkillsBuildAdapter } from './adapters/ibm-skillsbuild.adapter';
 import { AcademiaPortugalDigitalAdapter } from './adapters/academia-portugal-digital.adapter';
 import { TrailheadAdapter } from './adapters/trailhead.adapter';
-import { SoftinsaEverydayLearningAdapter } from './adapters/softinsa-el.adapter';
 import { IPlatformAdapter } from './interfaces/platform-adapter.interface';
 import { decryptApiKey, isEncrypted } from '../common/platform-crypto.util';
 
@@ -23,7 +22,6 @@ export class PlatformRegistry implements OnModuleInit {
     private readonly ibm: IbmSkillsBuildAdapter,
     private readonly academia: AcademiaPortugalDigitalAdapter,
     private readonly trailhead: TrailheadAdapter,
-    private readonly softinsa: SoftinsaEverydayLearningAdapter,
   ) {}
 
   async onModuleInit() {
@@ -32,7 +30,6 @@ export class PlatformRegistry implements OnModuleInit {
     this.register(this.ibm);
     this.register(this.academia);
     this.register(this.trailhead);
-    this.register(this.softinsa);
     
     this.logger.log(`Registados ${this.adapters.size} adaptadores de plataforma.`);
   }
@@ -77,10 +74,6 @@ export class PlatformRegistry implements OnModuleInit {
           config: p.config || {},
         };
         activeAdapters.push(adapter);
-      } else {
-        this.logger.warn(
-          `[PlatformRegistry] Plataforma '${p.name}' está ativa na DB mas não tem adapter registado.`,
-        );
       }
     }
 

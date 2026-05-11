@@ -75,7 +75,7 @@ async function main() {
   console.log('Iniciando seed...\n');
 
   // Plataformas
-  const [udemy, msLearn, ibm, academia, trailhead, softinsaEl, softinsaInternal, linkedin, coursera] = await Promise.all([
+  const [udemy, msLearn, ibm, academia, trailhead] = await Promise.all([
     prisma.learningPlatform.upsert({
       where: { name: 'Udemy' },
       update: {},
@@ -128,51 +128,6 @@ async function main() {
         type: 'Tech',
         enabled: true,
         searchEnabled: true,
-        config: {},
-      },
-    }),
-    prisma.learningPlatform.upsert({
-      where: { name: 'Softinsa Everyday Learning' },
-      update: {},
-      create: {
-        name: 'Softinsa Everyday Learning',
-        type: 'Internal',
-        enabled: true,
-        searchEnabled: false,
-        apiKeyRequired: true,
-        config: {},
-      },
-    }),
-    prisma.learningPlatform.upsert({
-      where: { name: 'Softinsa Internal' },
-      update: {},
-      create: {
-        name: 'Softinsa Internal',
-        type: 'Internal',
-        enabled: true,
-        searchEnabled: false,
-        config: {},
-      },
-    }),
-    prisma.learningPlatform.upsert({
-      where: { name: 'LinkedIn Learning' },
-      update: {},
-      create: {
-        name: 'LinkedIn Learning',
-        type: 'Tech',
-        enabled: false,
-        searchEnabled: false,
-        config: {},
-      },
-    }),
-    prisma.learningPlatform.upsert({
-      where: { name: 'Coursera' },
-      update: {},
-      create: {
-        name: 'Coursera',
-        type: 'Education',
-        enabled: false,
-        searchEnabled: false,
         config: {},
       },
     }),
@@ -549,19 +504,7 @@ async function main() {
       url: 'https://learn.microsoft.com/azure/az-104',
       status: TrainingStatus.priority,
     },
-    {
-      id: 'tr-maria-001',
-      userId: userMid.id,
-      platformId: coursera.id,
-      title: 'IBM Data Science Professional Certificate',
-      url: 'https://coursera.org/ibm-data-science',
-      status: TrainingStatus.completed,
-      completedAt: new Date('2025-08-15'),
-      rating: 4,
-      progressLevel: '100%',
-      durationHours: 60.0,
-      notes: 'Programa muito completo. Projetos práticos com Python e ML.',
-    },
+
     {
       id: 'tr-maria-002',
       userId: userMid.id,
@@ -574,25 +517,8 @@ async function main() {
       progressLevel: '100%',
       durationHours: 14.0,
     },
-    {
-      id: 'tr-maria-003',
-      userId: userMid.id,
-      platformId: coursera.id,
-      title: 'Machine Learning Specialization — Stanford',
-      url: 'https://coursera.org/ml-stanford',
-      status: TrainingStatus.ongoing,
-      progressLevel: '30%',
-      durationHours: 90.0,
-      notes: 'Módulo 2 — Árvores de decisão',
-    },
-    {
-      id: 'tr-maria-004',
-      userId: userMid.id,
-      platformId: linkedin.id,
-      title: 'Advanced SQL for Data Analysis',
-      url: 'https://linkedin.com/learning/sql-advanced',
-      status: TrainingStatus.later,
-    },
+
+
     {
       id: 'tr-rui-001',
       userId: userSenior.id,
@@ -635,18 +561,7 @@ async function main() {
       url: 'https://learn.microsoft.com/azure/az-400',
       status: TrainingStatus.priority,
     },
-    {
-      id: 'tr-sofia-001',
-      userId: userBiz.id,
-      platformId: linkedin.id,
-      title: 'SAP S/4HANA Fundamentals',
-      url: 'https://linkedin.com/learning/sap-s4hana',
-      status: TrainingStatus.completed,
-      completedAt: new Date('2025-07-20'),
-      rating: 4,
-      progressLevel: '100%',
-      durationHours: 12.0,
-    },
+
     {
       id: 'tr-sofia-002',
       userId: userBiz.id,
@@ -657,14 +572,7 @@ async function main() {
       progressLevel: '55%',
       durationHours: 8.0,
     },
-    {
-      id: 'tr-sofia-003',
-      userId: userBiz.id,
-      platformId: coursera.id,
-      title: 'Business Intelligence with Power BI',
-      url: 'https://coursera.org/bi-powerbi',
-      status: TrainingStatus.priority,
-    },
+
     {
       id: 'tr-carlos-001',
       userId: manager.id,
@@ -677,18 +585,7 @@ async function main() {
       progressLevel: '100%',
       durationHours: 40.0,
     },
-    {
-      id: 'tr-carlos-002',
-      userId: manager.id,
-      platformId: softinsaInternal.id,
-      title: 'Softinsa Leadership Program 2025',
-      url: 'https://learning.softinsa.com/leadership-2025',
-      status: TrainingStatus.completed,
-      completedAt: new Date('2025-12-01'),
-      rating: 5,
-      progressLevel: '100%',
-      durationHours: 20.0,
-    },
+
     {
       id: 'tr-admin-001',
       userId: admin.id,
@@ -776,32 +673,9 @@ async function main() {
       durationHours: 40.0,
       notes: 'Renovação necessária em breve.',
     },
-    {
-      id: 'tr-beatriz-002',
-      userId: userBeatriz.id,
-      platformId: linkedin.id,
-      title: 'FinOps Certified Practitioner',
-      url: 'https://linkedin.com/learning/finops',
-      status: TrainingStatus.completed,
-      completedAt: new Date('2025-02-10'),
-      rating: 4,
-      progressLevel: '100%',
-      durationHours: 16.0,
-    },
 
-    // ── Luís Tavares — DATA
-    {
-      id: 'tr-luis-001',
-      userId: userLuis.id,
-      platformId: coursera.id,
-      title: 'Databricks Certified Data Engineer Associate',
-      url: 'https://coursera.org/databricks-engineer',
-      status: TrainingStatus.completed,
-      completedAt: new Date('2025-09-01'),
-      rating: 5,
-      progressLevel: '100%',
-      durationHours: 35.0,
-    },
+
+
     {
       id: 'tr-luis-002',
       userId: userLuis.id,
@@ -850,14 +724,7 @@ async function main() {
       progressLevel: '100%',
       durationHours: 10.0,
     },
-    {
-      id: 'tr-catarina-003',
-      userId: userCatarina.id,
-      platformId: linkedin.id,
-      title: 'SQL for Business Intelligence',
-      url: 'https://linkedin.com/learning/sql-bi',
-      status: TrainingStatus.priority,
-    },
+
 
     // ── Daniela Ferraz — APPLICATION_OPERATIONS
     {
@@ -921,31 +788,8 @@ async function main() {
       durationHours: 8.0,
     },
 
-    // ── Ricardo Matos — BUSINESS_APPLICATIONS (cert CRÍTICO: SAP BTP expira Abr 23)
-    {
-      id: 'tr-ricardo-001',
-      userId: userRicardo.id,
-      platformId: linkedin.id,
-      title: 'SAP BTP Developer Certification',
-      url: 'https://linkedin.com/learning/sap-btp-dev',
-      status: TrainingStatus.completed,
-      completedAt: new Date('2024-04-20'),
-      rating: 5,
-      progressLevel: '100%',
-      durationHours: 24.0,
-    },
-    {
-      id: 'tr-ricardo-002',
-      userId: userRicardo.id,
-      platformId: linkedin.id,
-      title: 'SAP Fiori & UI5 Development',
-      url: 'https://linkedin.com/learning/sap-fiori-ui5',
-      status: TrainingStatus.completed,
-      completedAt: new Date('2025-01-15'),
-      rating: 5,
-      progressLevel: '100%',
-      durationHours: 20.0,
-    },
+
+
     {
       id: 'tr-ricardo-003',
       userId: userRicardo.id,
@@ -981,57 +825,11 @@ async function main() {
       durationHours: 10.0,
     },
 
-    // ── Filipa Costa — SOURCING_TALENT_MANAGEMENT (manager)
-    {
-      id: 'tr-filipa-001',
-      userId: managerStm.id,
-      platformId: linkedin.id,
-      title: 'HR Analytics & People Data Strategy',
-      url: 'https://linkedin.com/learning/hr-analytics',
-      status: TrainingStatus.completed,
-      completedAt: new Date('2025-06-10'),
-      rating: 5,
-      progressLevel: '100%',
-      durationHours: 14.0,
-    },
-    {
-      id: 'tr-filipa-002',
-      userId: managerStm.id,
-      platformId: coursera.id,
-      title: 'People Management & Organizational Behavior',
-      url: 'https://coursera.org/people-management',
-      status: TrainingStatus.completed,
-      completedAt: new Date('2025-09-20'),
-      rating: 5,
-      progressLevel: '100%',
-      durationHours: 20.0,
-    },
 
-    // ── Paulo Rodrigues — SOURCING_TALENT_MANAGEMENT
-    {
-      id: 'tr-paulo-001',
-      userId: userPaulo.id,
-      platformId: linkedin.id,
-      title: 'Workday HCM Fundamentals',
-      url: 'https://linkedin.com/learning/workday-hcm',
-      status: TrainingStatus.completed,
-      completedAt: new Date('2026-01-20'),
-      rating: 4,
-      progressLevel: '100%',
-      durationHours: 16.0,
-    },
-    {
-      id: 'tr-paulo-002',
-      userId: userPaulo.id,
-      platformId: linkedin.id,
-      title: 'LinkedIn Recruiter Masterclass',
-      url: 'https://linkedin.com/learning/recruiter',
-      status: TrainingStatus.completed,
-      completedAt: new Date('2025-11-10'),
-      rating: 4,
-      progressLevel: '100%',
-      durationHours: 8.0,
-    },
+
+
+
+
   ];
 
   for (const t of trainings) {

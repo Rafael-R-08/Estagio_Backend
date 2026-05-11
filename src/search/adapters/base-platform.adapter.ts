@@ -5,7 +5,7 @@ import { CourseResult, IPlatformAdapter, PlatformConfig } from '../interfaces/pl
 export abstract class BasePlatformAdapter implements IPlatformAdapter {
   protected abstract readonly logger: Logger;
   abstract readonly platformName: string;
-  private readonly CACHE_VERSION = 'v3';
+  private readonly CACHE_VERSION = 'v4';
   
   private errorCount = 0;
   private readonly MAX_ERRORS = 5;
@@ -25,6 +25,7 @@ export abstract class BasePlatformAdapter implements IPlatformAdapter {
     limit: number, 
     filters?: { isFree?: boolean; minRating?: number; minRelevance?: number }
   ): Promise<CourseResult[]> {
+    this.logger.log(`[${this.platformName}] search() chamado para "${query}"`);
     
     // 1. Check Circuit Breaker
     if (Date.now() < this.circuitOpenUntil) {
@@ -41,17 +42,19 @@ export abstract class BasePlatformAdapter implements IPlatformAdapter {
     }
 
     try {
-      // 3. Rate Limiting / Delay (Opcional, pode ser personalizado por adapter)
+      // 3. Rate Limiting / Delay
       await this.handleRateLimit();
 
-      // 4. Executa a pesquisa real (implementada pelas subclasses)
+      // 4. Executa a pesquisa real
       const results = await this.fetchResults(query, limit, filters);
       
       // 5. Reset Error Count on success
       this.errorCount = 0;
 
-      // 6. Save to Cache (TTL 1 hora por defeito)
-      await this.cache.set(cacheKey, JSON.stringify(results), 3600);
+      // 6. Save to Cache (apenas se houver resultados)
+      if (results.length > 0) {
+        await this.cache.set(cacheKey, JSON.stringify(results), 3600);
+      }
       
       return results;
     } catch (error) {

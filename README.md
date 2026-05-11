@@ -12,6 +12,7 @@ API REST do projecto **LearningHub**, desenvolvida com **NestJS 11 + TypeScript*
 4. [Clonar o Repositório](#4-clonar-o-repositório)
 5. [Instalar Dependências](#5-instalar-dependências)
 6. [Configurar Variáveis de Ambiente](#6-configurar-variáveis-de-ambiente)
+6.1. [Configuração de APIs de Plataformas](#61-configuração-de-apis-de-plataformas-de-aprendizagem)
 7. [Iniciar a Infraestrutura com Docker](#7-iniciar-a-infraestrutura-com-docker)
 8. [Configurar a Base de Dados](#8-configurar-a-base-de-dados)
 9. [Arrancar o Servidor](#9-arrancar-o-servidor)
@@ -383,6 +384,42 @@ VAPID_PUBLIC_KEY="BK_public_key_aqui"
 VAPID_PRIVATE_KEY="private_key_aqui"
 VAPID_EMAIL=mailto:admin@learninghub.pt
 ```
+
+---
+
+## 6.1. Configuração de APIs de Plataformas de Aprendizagem
+
+O LearningHub integra com várias plataformas de aprendizagem externa para pesquisa de cursos. Algumas plataformas requerem configuração de API keys para funcionar correctamente.
+
+### Plataformas Suportadas
+
+| Plataforma | Status | Configuração Necessária | Como Obter API Key |
+|------------|--------|------------------------|-------------------|
+| Udemy | ⚠️ Limitado | API Business (recomendado) | [Udemy Instructor API](https://www.udemy.com/instructor/account/api/) |
+| Microsoft Learn | ✅ Funcional | Nenhuma | — |
+| IBM SkillsBuild | ✅ Funcional | Nenhuma | — |
+| Academia Portugal Digital | ✅ Funcional | Nenhuma | — |
+| Trailhead | ✅ Funcional | Nenhuma | — |
+
+### Problema Conhecido: Udemy
+
+**Situação Actual:** A Udemy mudou recentemente a sua política de acesso à API pública, bloqueando acessos automatizados sem autenticação. A plataforma agora requer uma API Business key para pesquisa programática.
+
+**Solução Recomendada:**
+1. Acesse https://www.udemy.com/instructor/account/api/
+2. Crie uma nova aplicação para obter `client_id` e `client_secret`
+3. Codifique as credenciais em Base64: `btoa('client_id:client_secret')`
+4. No painel admin do LearningHub, configure a API key para a plataforma Udemy
+
+**Solução Alternativa:** Se não for possível obter API Business, a Udemy ficará temporariamente indisponível para pesquisa até que a plataforma restabeleça o acesso público.
+
+### Configuração via Admin Panel
+
+1. Inicie o servidor e aceda ao painel admin
+2. Vá para **Admin → Plataformas**
+3. Seleccione a plataforma desejada
+4. Configure a API key no campo apropriado
+5. Teste a configuração pesquisando por um curso
 
 ---
 

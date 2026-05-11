@@ -14,7 +14,6 @@ import { UdemyAdapter } from './adapters/udemy.adapter';
 import { IbmSkillsBuildAdapter } from './adapters/ibm-skillsbuild.adapter';
 import { AcademiaPortugalDigitalAdapter } from './adapters/academia-portugal-digital.adapter';
 import { TrailheadAdapter } from './adapters/trailhead.adapter';
-import { SoftinsaEverydayLearningAdapter } from './adapters/softinsa-el.adapter';
 import { PlatformRegistry } from './platform.registry';
 import { CatalogSyncService } from './catalog-sync.service';
 
@@ -35,7 +34,6 @@ import { forwardRef } from '@nestjs/common';
     IbmSkillsBuildAdapter,
     AcademiaPortugalDigitalAdapter,
     TrailheadAdapter,
-    SoftinsaEverydayLearningAdapter,
     CatalogSyncService,
   ],
   exports: [SearchService, PlatformRegistry, SearchOrchestratorService, CourseDbService, CatalogSyncService],
